@@ -2,14 +2,13 @@
   "output": {
     "output_dir": "../results",
     "hdf5_storing":{
-      "enabled": true,
+      "enabled": true
     }
   },
   "run": {
     "task": "T1",
     "master_seed": 12345,
-    "verbose": true,
-    "trials": 10
+    "verbose": true
   },
   "target_observable": {
     "type": "TFIH",
@@ -33,7 +32,7 @@
   },
   "noise": {
     "type": "depolarizing",
-    "strenght": 0.001,
+    "strength": 0.001,
     "control_unit_noise": {
       "enabled": false,
       "type": "depolarizing",

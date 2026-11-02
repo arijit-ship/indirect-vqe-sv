@@ -5,11 +5,133 @@ from qulacs import Observable, QuantumCircuit
 from qulacs.gate import CZ, RX, RY, RZ, Identity, Y, merge
 
 from .time_evolution_gate import create_time_evo_unitary
+from .config_validator import validate_system_config, validate_noise_config
+from .hamiltonian import create_xy_hamiltonian, create_tf_ising_hamiltonian
 
 
-def create_ansatz_xy(n_qubits: int, n_layes: int, control_unit_size: int, params: List[float]) -> QuantumCircuit:
-     ...
+def create_ansatz_simple(system: dict, noise: dict, parameters: np.ndarray) -> dict:
+    """
+    Creates a quantum circuit ansatz based on the provided system and noise configurations.
 
+    Args:
+        system (dict): Configuration dictionary for the quantum system.
+        noise (dict): Configuration dictionary for noise settings.
+        parameters (np.ndarray): Parameters for the ansatz circuit.
+
+    Returns:
+        QuantumCircuit: The constructed quantum circuit ansatz.
+    """
+    sys_cfg = validate_system_config(system)
+    noise_cfg = validate_noise_config(noise)
+
+    # Extracting necessary parameters from the validated configurations
+    n_qubits: int = sys_cfg["n_qubits"]
+    n_layers: int = sys_cfg["n_layers"]
+    control_unit_size: int = sys_cfg["control_unit_size"]
+
+    drift_type: str = sys_cfg["drift"]
+
+    # Extracting noise parameters
+    drift_noise_enabled = noise_cfg["drift_noise"]["enabled"]
+    drift_noise_type = noise_cfg["drift_noise"]["type"]
+    drift_noise_strength = noise_cfg["drift_noise"]["strength"]
+    
+    control_noise_enabled = noise_cfg["control_unit_noise"]["enabled"]
+    control_noise_type = noise_cfg["control_unit_noise"]["type"]
+    control_noise_prob = noise_cfg["control_unit_noise"]["probability"]
+
+    cz_gate_noise_enabled = noise_cfg["control_unit_noise"]["enabled"]
+    cz_noise_type = noise_cfg["control_unit_noise"]["type"]
+    cz_noise_prob = noise_cfg["control_unit_noise"]["probability"]
+
+    chunks: List = []  # Store the circuit for each layer
+    circuit = QuantumCircuit(n_qubits)
+
+    # Angel parameters start position in the parameters array
+    angle_para_start_pos: int = n_layers
+
+    # Constructing drift Hamiltonian based on the specified drift type
+    drift_hamiltonian = None
+
+    # Drift noise probability, initialized to None. Will be calculated based on the time evolution.
+    drift_noise_prob = None
+
+    # Layer details
+    layer_details: List[dict] = []
+
+    if drift_type == "XY":
+        drift_hamiltonian = create_xy_hamiltonian(n_qubits)
+    else:
+        raise ValueError(f"[ERROR]: Unsupported drift type: {drift_type}")
+    
+
+    for layer in range(n_layers):
+
+        # 1. Constructing the control unit gates (rotation gates)
+        for i in range(control_unit_size):
+            # Rotation gates
+
+            # With noise
+            if drift_noise_enabled:
+                circuit.add_noise_gate(RX(i, parameters[angle_para_start_pos + i]), control_noise_type, control_noise_prob)
+                circuit.add_noise_gate(RY(i, parameters[angle_para_start_pos + i + 1]), control_noise_type, control_noise_prob)
+
+            # Without noise
+            else:
+                circuit.add_gate(RX(i, parameters[angle_para_start_pos + i]))
+                circuit.add_gate(RY(i, parameters[angle_para_start_pos + i + 1]))
+
+        # 2. Adding CZ gates between qubit 1 and qubit 2
+
+        # With noise
+        if cz_gate_noise_enabled:
+            circuit.add_noise_gate(CZ(0, 1), cz_noise_type, cz_noise_prob)
+
+        # Without noise
+        else:
+            circuit.add_gate(CZ(0, 1))
+
+        # 3. Adding time evolution gate
+        if layer == 0:
+            ti = 0
+            tf = parameters[layer]
+            time_evo_gate = create_time_evo_unitary(hamiltonian=drift_hamiltonian, ti=0, tf=tf)  # Assuming Observable() is defined elsewhere
+            circuit.add_gate(time_evo_gate)
+            if drift_noise_enabled:
+                drift_noise_prob = drift_noise_strength * (tf - ti)
+                for i in range(n_qubits):
+                    circuit.add_noise_gate(Identity(i), drift_noise_type, drift_noise_prob)
+            else:
+                pass
+        else:
+            ti = parameters[layer - 1]
+            tf = parameters[layer]
+            time_evo_gate = create_time_evo_unitary(hamiltonian=drift_hamiltonian, ti=ti, tf=tf)
+            circuit.add_gate(time_evo_gate)
+            if drift_noise_enabled:
+                drift_noise_prob = drift_noise_strength * (tf - ti)
+                for i in range(n_qubits):
+                    circuit.add_noise_gate(Identity(i), drift_noise_type, drift_noise_prob)
+            else:
+                pass
+
+        layer_details.append({ 
+            "layer": layer,
+            "ti": ti,
+            "tf": tf,
+            "drift_noise_prob": drift_noise_prob
+        })
+
+        angle_para_start_pos += 2 * control_unit_size  # Each layer has 2 * control_unit_size angle parameters.
+        chunks.append(circuit.copy())  # Store the circuit for each layer
+
+    output: dict = {
+        "chunks": chunks,
+        "circuit": circuit,
+        "layer_details": layer_details
+    }
+
+    return output
 
 def noiseless_ansatz(nqubits: int, layers: int, gateset: int, ugateH: Observable, param: list[float]) -> QuantumCircuit:
     """

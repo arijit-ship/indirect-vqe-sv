@@ -1,7 +1,8 @@
-"""main.py: reads config.json, initializes the system, and executes VQE trials.
+"""main.py: reads config.json, initializes Config, and executes VQE.
+Acts strictly as an interface/orchestrator with zero core VQE/physics logic.
 
 Usage:
-    python main.py config.json
+    python main.py config-test.json
 """
 
 import argparse
@@ -13,10 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-# Core VQE interface
 from scripts.vqe import VQE
-# Core Hamiltonian builder (delegating core logic to module)
-from scripts.hamiltonian import construct_observable_from_config
 
 
 def get(d, *keys, default=None):
@@ -38,7 +36,6 @@ class Config:
         self.output_dir = Path(out) if out is not None else None
         self.master_seed = get(raw, "run", "master_seed")
         self.verbose = get(raw, "run", "verbose", default=True)
-        self.n_trials = get(raw, "run", "trials", default=1)
 
         # ----- target observable -----
         self.target_type = get(raw, "target_observable", "type")
@@ -60,7 +57,7 @@ class Config:
         self.noise_type = get(raw, "noise", "type")
         strength = get(raw, "noise", "strength")
         if strength is None:
-            strength = get(raw, "noise", "strenght")    # handling potential typo in config
+            strength = get(raw, "noise", "strenght")
         self.noise_strength = strength
 
         # ----- control unit noise -----
@@ -76,10 +73,6 @@ class Config:
         # ----- optimization -----
         self.optimization = get(raw, "optimization", default={})
 
-    @property
-    def trials(self):
-        return list(range(self.n_trials)) if self.n_trials else []
-
     def parameter_source(self):
         """'values' if parameters are passed, otherwise 'random'."""
         if self.parameter_values is not None:
@@ -87,14 +80,6 @@ class Config:
         if not self.random_init:
             raise ValueError("parameters.values is empty, so parameters.random_initialization is needed")
         return "random"
-
-    def init_seed(self, trial):
-        """Seed for the random start of one trial."""
-        base = get(self.random_init, "seed")
-        if base is None:
-            base = self.master_seed
-        seq = np.random.SeedSequence([base, trial])
-        return int(seq.generate_state(1)[0])
 
 
 def load_json(path):
@@ -117,6 +102,7 @@ def main():
     raw_config = load_json(args.config)
     cfg = Config(raw_config)
 
+
     # 2. Setup output directories and save a copy of the config used
     if cfg.output_dir is not None:
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
@@ -126,48 +112,32 @@ def main():
 
     if cfg.verbose:
         print("=" * 50)
-        print(f"Starting Task: {cfg.task} | Trials: {cfg.n_trials} | Qubits: {cfg.n_qubits}")
+        print(f"Starting Task: {cfg.task} | Qubits: {cfg.n_qubits}")
         print("=" * 50)
 
-    # 3. Construct Target Observable Hamiltonian via external module
-    target_observable = construct_observable_from_config(cfg)
-
-    # 4. Run VQE Trials Loop
-    all_trial_results = []
+    # 3. Execution Setup
     start_time = time.time()
 
-    for trial in cfg.trials:
-        if cfg.verbose:
-            print(f"\n--- Running Trial {trial + 1}/{cfg.n_trials} ---")
+    # Initialize VQE solver instance
+    vqe_solver = VQE(config=cfg)
 
-        # Initialize VQE solver instance for the current trial
-        vqe_solver = VQE(config=cfg, trial=trial, observable=target_observable)
-        
-        # Execute optimization
-        trial_output = vqe_solver.run_optimization()
-        all_trial_results.append(trial_output)
+    # Manually invoke workflow steps as you implement them:
+    # initial_params = vqe_solver.initialize_parameters()
+    # execution_output = vqe_solver.run_optimization(initial_params)
 
-        if cfg.verbose:
-            print(f"Trial {trial + 1} completed. Min Cost: {trial_output['min_cost']:.6f}")
+    execution_output = {
+        "min_cost": None
+    }
 
     total_run_time = time.time() - start_time
 
-    # 5. Summarize and Save Final Aggregated Output to files
+    # 4. Save Final Output to files
     if cfg.output_dir is not None:
         summary_file = cfg.output_dir / f"summary_output_{timestamp}.json"
         summary_data = {
             "config": raw_config,
             "total_run_time_sec": total_run_time,
-            "results": [
-                {
-                    "trial": i,
-                    "initial_cost": res["initial_cost"],
-                    "min_cost": res["min_cost"],
-                    "cost_callings_total": res["cost_callings_total"],
-                    "success": bool(res["optimizer_result"].success)
-                }
-                for i, res in enumerate(all_trial_results)
-            ]
+            "results": execution_output
         }
         with open(summary_file, "w") as f:
             json.dump(summary_data, f, indent=2)

@@ -1,3 +1,20 @@
+output/*
+!output/.gitkeep
+results/*
+!results/.gitkeep
+env
+.vscode
+.VSCodeCounter
+private
+src/optimizer
+# from boilerplate
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+
+#######################################
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

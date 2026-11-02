@@ -1,158 +1,84 @@
-import os
-import time
-from typing import Dict, List, Tuple, Union
-
-import h5py
 import numpy as np
-from qulacs import DensityMatrix, QuantumCircuit, QuantumState
-from scipy.optimize import minimize
-
-from .ansatz import create_noisy_ansatz, noiseless_ansatz
-from .constraint import create_time_constraints_with_mingap, create_tf_fixed_constraint
-from .createparam import create_param
-from .hamiltonian import create_ising_hamiltonian, create_xy_hamiltonian  # Adjust based on your module imports
-
+from .createparam import create_random_params
 
 class VQE:
-    def __init__(self, config, trial: int = 0, observable=None) -> None:
+    # Class-level constant declaration
+    NO_ROTATION_GATES_PER_CONTROL_UNIT = 2
+
+    def __init__(self, config, observable=None) -> None:
+        """Boilerplate VQE constructor.
+
+        Stores configuration and target observable without executing any
+        logic.
+        """
         self.cfg = config
-        self.trial = trial
+        self.system = config.system
+        self.noise = config.noise
+     
         self.observable = observable
 
-        # System & Ansatz parameters
+        # System & Ansatz properties extracted from config
         self.nqubits = self.cfg.n_qubits
         self.n_layers = self.cfg.n_layers
-        self.state_type = "dmatrix" if self.cfg.control_noise_enabled else "statevector" # Or configure via config
-        
-        # Optimization settings
-        self.optimizer_method = self.cfg.optimization.get("method", "SLSQP")
-        self.opt_options = self.cfg.optimization.get("options", {})
-        self.maxiter = self.cfg.optimization.get("maxiter", 1000)
-        self.tol = self.cfg.optimization.get("tol", 1e-6)
 
-        # Counters & tracking
+        # Tracking counters
         self.cost_fn_calling_counter = 0
         self.iteration_count = 0
 
-        # Setup initial parameters
-        self.initial_params = self._initialize_parameters()
+    def initialize_parameters(self) -> np.ndarray:
+        """Initializes parameters based on the config settings:
+        - If `values` is a list, uses those values directly.
+        - If `values` is null and `random_initialization.enabled` is true, 
+          sets up the seed and calls `create_random_params`.
+        """
+        parameter_source = self.cfg.parameter_source()
 
-    def _initialize_parameters(self) -> np.ndarray:
-        """Determines whether to use passed values or generate random parameters based on config logic."""
-        source = self.cfg.parameter_source()
-        
-        if source == "values":
+        if parameter_source == "values":
             return np.array(self.cfg.parameter_values, dtype=float)
-        elif source == "random":
-            # Set seed for reproducibility per trial
-            seed = self.cfg.init_seed(self.trial)
-            np.random.seed(seed)
+
+        elif parameter_source == "random":
+            random_init_config = self.cfg.random_init or {}
             
-            # Generate random parameters (adjust arguments to match your create_param signature)
-            return create_param(
-                layers=self.n_layers,
-                gateset=self.cfg.control_unit_size,
-                ti=0.0,
-                tf=self.cfg.total_time
+            seed = None
+            if random_init_config.get("enabled", False):
+                seed = random_init_config.get("seed")
+                if seed is not None:
+                    np.random.seed(seed)
+
+            # Assuming control unit size (gateset) and total time are stored in config
+            control_unit_size = getattr(self.cfg, "control_unit_size", 1)
+            total_time = getattr(self.cfg, "total_time", 1.0)
+
+            # Total number of angle parameters per layer in control unit
+            per_layer_angle_params = control_unit_size * self.NO_ROTATION_GATES_PER_CONTROL_UNIT
+            
+            return create_random_params(
+                per_layer_angle_params=per_layer_angle_params,
+                n_layers=self.n_layers,
+                time=total_time,
+                seed=seed
             )
         else:
-            raise ValueError(f"Unknown parameter source: {source}")
+            raise ValueError("Invalid parameter configuration source specified.")
 
-    def create_ansatz(self, param: np.ndarray) -> QuantumCircuit:
-        """Constructs the ansatz circuit (noiseless or noisy)."""
-        if self.cfg.noise_strength and self.cfg.noise_strength > 0:
-            ansatz_dict = create_noisy_ansatz(
-                nqubits=self.nqubits,
-                layers=self.n_layers,
-                gateset=self.cfg.control_unit_size,
-                ugateH=self.observable, # or drift Hamiltonian
-                ansatz_noise_type=self.cfg.noise_type,
-                ansatz_noise_prob=self.cfg.noise_strength,
-                param=param,
-                identity_factors=[0, 0, 0, 0] # Adjust as needed
-            )
-        else:
-            ansatz_dict = noiseless_ansatz(
-                nqubits=self.nqubits,
-                layers=self.n_layers,
-                gateset=self.cfg.control_unit_size,
-                ugateH=self.observable,
-                param=param
-            )
-        return ansatz_dict["circuit"]
-
-    def cost_function(self, param: np.ndarray) -> float:
-        """Evaluates the VQE cost function (expectation value)."""
-        state = DensityMatrix(self.nqubits) if self.state_type.lower() == "dmatrix" else QuantumState(self.nqubits)
         
-        circuit = self.create_ansatz(param=param)
-        circuit.update_quantum_state(state)
-        
-        cost = self.observable.get_expectation_value(state)
-        self.cost_fn_calling_counter += 1
+    def create_ansatz(self, params: np.ndarray):
 
-        if self.cfg.verbose:
-            print(f"[Trial {self.trial}] Cost Call #{self.cost_fn_calling_counter} | Cost: {cost:.6f}", flush=True)
+        ansatz = self.create_ansatz(
+            system=self.system,
+            noise=self.noise,
+            parameters=params,
+        )
+        return ansatz
 
-        return float(cost)
-
-    def run_optimization(self) -> Dict:
-        """Runs the optimization loop using SciPy minimize."""
-        cost_history = []
-
-        def _tracked_cost(param):
-            cost = self.cost_function(param)
-            cost_history.append(cost)
-            return cost
-
-        def _iteration_callback(param):
-            self.iteration_count += 1
-            if self.cfg.verbose:
-                print(f"[Trial {self.trial}] Iteration completed: {self.iteration_count}", flush=True)
-
-        # Initial evaluation
-        initial_cost = self.cost_function(self.initial_params)
-
-        # Build constraints if monotonically increasing time is enabled
-        constraints = None
-        if self.cfg.monotonic_time and self.optimizer_method == "SLSQP":
-            # Example constraint hook (adjust to your project's constraint builder functions)
-            constraints = create_time_constraints_with_mingap(self.n_layers, len(self.initial_params))
-
-        # Run SciPy optimization
-        opt_result = minimize(
-            _tracked_cost,
-            self.initial_params,
-            method=self.optimizer_method,
-            constraints=constraints,
-            callback=_iteration_callback,
-            options=self.opt_options
+    def cost_function(self, params: np.ndarray) -> float:
+        """Boilerplate step: Plug in your cost evaluation logic here."""
+        # TODO: Implement state initialization, ansatz application, and expectation value calculation
+        raise NotImplementedError(
+            "Implement your cost function evaluation logic here."
         )
 
-        optimized_cost = opt_result.fun
-        optimized_params = opt_result.x.tolist()
-
-        # Optional HDF5 logging if output directory is configured
-        if self.cfg.output_dir is not None:
-            self._save_h5_results(initial_cost, optimized_cost, cost_history, opt_result)
-
-        return {
-            "initial_cost": initial_cost,
-            "min_cost": optimized_cost,
-            "initial_params": self.initial_params.tolist(),
-            "optimized_params": optimized_params,
-            "cost_callings_total": self.cost_fn_calling_counter,
-            "optimizer_result": opt_result
-        }
-
-    def _save_h5_results(self, init_cost: float, final_cost: float, cost_history: List[float], opt_result):
-        """Helper to save trial history into HDF5 format."""
-        h5_path = self.cfg.output_dir / f"trial_{self.trial}_results.h5"
-        with h5py.File(h5_path, "w") as hf:
-            hf.create_dataset("initial_params", data=self.initial_params)
-            hf.create_dataset("optimized_params", data=opt_result.x)
-            hf.create_dataset("cost_history", data=np.array(cost_history))
-            hf.attrs["initial_cost"] = init_cost
-            hf.attrs["final_cost"] = final_cost
-            hf.attrs["success"] = bool(opt_result.success)
-            hf.attrs["message"] = str(opt_result.message)
+    def run_optimization(self, initial_params: np.ndarray) -> dict:
+        """Boilerplate step: Plug in your optimization wrapper logic here."""
+        # TODO: Implement optimization loop (e.g., scipy.optimize.minimize or custom optimizer)
+        raise NotImplementedError("Implement your optimization loop here.")
