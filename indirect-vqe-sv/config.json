@@ -1,0 +1,67 @@
+{
+  "output": {
+    "output_dir": "../results",
+    "hdf5_storing":{
+      "enabled": true,
+    }
+  },
+  "run": {
+    "task": "T1",
+    "master_seed": 12345,
+    "verbose": true,
+    "trials": 10
+  },
+  "target_observable": {
+    "type": "TFIH",
+    "coefficients": {
+      "J": 1.0,
+      "h": 1.0
+    }
+  },
+  "system": {
+    "n_qubits": 5,
+    "n_layers": 20,
+    "control_unit_size": 1,
+    "drift": "XY",
+    "time": {
+      "total_time": 20,
+      "subdivide": {
+        "enabled": false,
+        "step_length": 0.1
+      }
+    }
+  },
+  "noise": {
+    "type": "depolarizing",
+    "strenght": 0.001,
+    "control_unit_noise": {
+      "enabled": false,
+      "type": "depolarizing",
+      "probability": 0.001
+    },
+    "cz_gate_noise": {
+      "enabled": false,
+      "type": "depolarizing",
+      "probability": 0.001
+    }
+  },
+  "parameters": {
+    "random_initialization": {
+      "enabled": true,
+      "seed": 12345
+    },
+    "values": null,
+    "monotonically_increasing_time_enabled": true
+  },
+  "optimization": {
+    "enabled": true,
+    "method": "SLSQP",
+    "maxiter": 1000,
+    "tol": 1e-6,
+    "options": {
+      "disp": false,
+      "eps": 1e-8,
+      "ftol": 1e-6
+    }
+  }
+}
