@@ -1,46 +1,54 @@
 {
   "output": {
-    "output_dir": "../results",
+    "output_dir": "../results/test_1",
+    "output_prefix": "test",
     "hdf5_storing":{
       "enabled": true
+    },
+    "draw_circut_layer":{
+      "enabled": true,
+      "dpi": 300
     }
   },
   "run": {
-    "task": "T1",
+    "task": "vqe-optimization",
     "master_seed": 12345,
-    "verbose": true
+    "verbosity": 3
   },
   "target_observable": {
     "type": "TFIH",
     "coefficients": {
-      "J": 1.0,
+      "j": 1.0,
       "h": 1.0
     }
   },
   "system": {
     "n_qubits": 5,
-    "n_layers": 20,
+    "n_layers": 10,
     "control_unit_size": 1,
     "drift": "XY",
-    "time": {
+    "time_evolution": {
       "total_time": 20,
-      "subdivide": {
-        "enabled": false,
+      "totter_subdivide": {
+        "enabled": true,
         "step_length": 0.1
       }
     }
   },
   "noise": {
-    "type": "depolarizing",
-    "strength": 0.001,
+    "drift_noise":{
+      "enabled": true,
+      "type": "Depolarizing",
+      "strength": 0.001
+      },
     "control_unit_noise": {
       "enabled": false,
-      "type": "depolarizing",
+      "type": "Depolarizing",
       "probability": 0.001
     },
     "cz_gate_noise": {
       "enabled": false,
-      "type": "depolarizing",
+      "type": "Depolarizing",
       "probability": 0.001
     }
   },
@@ -50,10 +58,12 @@
       "seed": 12345
     },
     "values": null,
-    "monotonically_increasing_time_enabled": true
+    "constraints":{
+      "monotonically_increasing_time": true,
+      "fixed_final_time": true
+      }
   },
   "optimization": {
-    "enabled": true,
     "method": "SLSQP",
     "maxiter": 1000,
     "tol": 1e-6,

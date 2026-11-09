@@ -5,7 +5,7 @@ def create_random_params(
         n_layers: int,
         time: float,
         seed: int = None
-) -> np.ndarray:
+) -> dict:
     """
     Creates random parameters for the VQE ansatz.
 
@@ -35,13 +35,13 @@ def create_random_params(
     # Combine time and angle parameters
     combined_params = np.concatenate((time_params, params))
 
-    # param_dict = {
-    #     "time_params": time_params,
-    #     "angle_params": params,
-    #     "combined_params": combined_params
-    # }
+    param_dict = {
+        "time_params": time_params,
+        "angle_params": params,
+        "combined_params": combined_params
+    }
 
-    return combined_params
+    return param_dict
     
 # def create_param(layer: int, gateset: int, ti: float, tf: float) -> np.ndarray:
 #     """

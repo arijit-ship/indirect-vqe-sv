@@ -23,7 +23,7 @@ def validate_system_config(system: dict) -> dict:
     if drift is None:
         raise ValueError("[MISSING PARAMETER]: drift is missing. Check the configuration file.")
 
-    time_config = system.get("time", {})
+    time_config = system.get("time_evolution", {})
     total_time = time_config.get("total_time")
     if total_time is None:
         raise ValueError("[MISSING PARAMETER]: total_time is missing. Check the configuration file.")
