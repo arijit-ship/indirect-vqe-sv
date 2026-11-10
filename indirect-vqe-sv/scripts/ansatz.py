@@ -27,15 +27,12 @@ from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-
-
 def create_ansatz_drift_xy(
-    system: dict, noise: dict, parameters: List, verbosity: int = 1
+    system: dict,
+    noise: dict,
+    parameters: List,
+    verbosity: int = 1,
+    return_layer_details=False,
 ) -> dict:
 
     try:
@@ -76,6 +73,9 @@ def create_ansatz_drift_xy(
     xy_drift_hamiltonian: Observable = create_xy_hamiltonian(num_qubits=num_qubits)
     circuit: QuantumCircuit = QuantumCircuit(num_qubits)
     flag: int = num_layers  # Tracking angles in param ndarrsy
+
+    # Initialize layer details container if tracking is enabled
+    all_layer_details = [] if return_layer_details else None
 
     for layer in range(num_layers):
 
@@ -149,6 +149,7 @@ def create_ansatz_drift_xy(
             tf = parameters[layer]
 
         if not trotter_subdivide_enabled:
+            # logger.info(f"Layer-{layer}")
             time_evo_gate = create_time_evo_unitary(xy_drift_hamiltonian, ti, tf)
             circuit.add_gate(time_evo_gate)
             if drift_noise_enabled:
@@ -157,11 +158,22 @@ def create_ansatz_drift_xy(
                     circuit.add_noise_gate(
                         Identity(i), drift_noise_type, drift_noise_probability
                     )
+                if return_layer_details:
+                    current_details = {
+                        "layer_index": layer,
+                        "time": [ti, tf],
+                        "noise_probability": drift_noise_probability,
+                    }
+                    all_layer_details.append(current_details)
+                if verbosity >= 3:
+                    logger.info(
+                        f"Layer-{layer} noise-{drift_noise_type} probability: {drift_noise_probability}"
+                    )
         else:
-            if verbosity >= 3:
-                logger.info(f"Trotter subdivisions of layer-{layer}")
-            trotter_dict = None
-            circuit, trotter_dict = lie_trotter_evo(
+
+            logger.info(f"Trotter subdivisions of layer-{layer}")
+            layer_details = None
+            circuit, layer_details = lie_trotter_evo(
                 num_qubits=num_qubits,
                 circuit=circuit,
                 tf=tf,
@@ -171,13 +183,14 @@ def create_ansatz_drift_xy(
                 noise_enabled=drift_noise_enabled,
                 noise_type=drift_noise_type,
                 noise_strength=drift_noise_strength,
-                curent_layer_index = layer,
-                verbosity=verbosity,  
+                curent_layer_index=layer,
+                verbosity=verbosity,
+                return_layer_details=False,
             )
 
     ansatz_dict = {
         "circuit": circuit,
-        "artifact": trotter_dict or None
+        "layer_details": all_layer_details if all_layer_details else None,
     }
     return ansatz_dict
 
@@ -194,7 +207,7 @@ def lie_trotter_evo(
     noise_type="Depolarizing",
     noise_strength=0.0,
     verbosity: int = 3,
-    return_trotter: bool = False,
+    return_layer_details: bool = False,
 ):
     n_i = int(np.ceil(abs(tf - ti) / delta_t)) if delta_t > 0 else 1
     if n_i == 0:
@@ -203,7 +216,7 @@ def lie_trotter_evo(
     noise_probability = noise_strength * abs(tf - ti) / n_i
     ti_sub = ti / n_i
     tf_sub = tf / n_i
-    
+
     time_evo_gate = create_time_evo_unitary(
         hamiltonian=drift_hamiltonian, ti=ti_sub, tf=tf_sub
     )
@@ -211,12 +224,18 @@ def lie_trotter_evo(
     # Logging is cheap—safe to run whenever verbosity >= 3
     if verbosity >= 3:
         logger.info(f"Number of subdivisions of layer-{curent_layer_index}: {n_i}")
-        logger.info(f"Subdivision layer-{curent_layer_index} noise-{noise_type} probability: {noise_probability}")
+        logger.info(
+            f"Subdivision layer-{curent_layer_index} noise-{noise_type} probability: {noise_probability}"
+        )
 
     # Only allocate the heavy trotter tracking dictionary & list if requested
-    trotter_dict = None
-    if verbosity >= 3 and return_trotter:
-        trotter_dict = {"total_steps": n_i, "noise_prob": noise_probability, "steps": []}
+    layer_details = None
+    if verbosity >= 3 and return_layer_details:
+        layer_details = {
+            "total_steps": n_i,
+            "noise_probability": noise_probability,
+            "steps": [],
+        }
 
     # Fast loop execution
     for i in range(n_i):
@@ -226,10 +245,12 @@ def lie_trotter_evo(
                 circuit.add_noise_gate(Identity(q), "Depolarizing", noise_probability)
 
         # Only append to the list if tracing is explicitly turned on
-        if trotter_dict is not None:
-            trotter_dict["steps"].append({"deep_trotter": {"step_loc": i, "time": [ti_sub, tf_sub]}})
+        if layer_details is not None:
+            layer_details["steps"].append(
+                {"deep_trotter": {"step_loc": i, "time": [ti_sub, tf_sub]}}
+            )
 
-    return circuit, trotter_dict
+    return circuit, layer_details
 
 
-def create_ansatz_drift_heisenbrg(): ...
+def create_ansatz_drift_heisenberg(): ...

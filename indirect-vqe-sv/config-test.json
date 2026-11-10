@@ -24,13 +24,12 @@
   },
   "system": {
     "n_qubits": 5,
-    "n_layers": 10,
-    "control_unit_size": 1,
+    "n_layers": 2,
     "drift": "XY",
     "time_evolution": {
       "total_time": 20,
       "totter_subdivide": {
-        "enabled": true,
+        "enabled": false,
         "step_length": 0.1
       }
     }
@@ -60,14 +59,13 @@
     "values": null,
     "constraints":{
       "monotonically_increasing_time": true,
-      "fixed_final_time": true
+      "fixed_final_time": false
       }
   },
   "optimization": {
     "method": "SLSQP",
-    "maxiter": 1000,
-    "tol": 1e-6,
-    "options": {
+      "options": {
+      "maxiter": 1000,
       "disp": false,
       "eps": 1e-8,
       "ftol": 1e-6
