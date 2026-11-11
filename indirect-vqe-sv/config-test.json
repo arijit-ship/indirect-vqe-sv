@@ -2,18 +2,12 @@
   "output": {
     "output_dir": "../results/test_1",
     "output_prefix": "test",
-    "hdf5_storing":{
-      "enabled": true
-    },
+    "verbosity": 3,
     "draw_circut_layer":{
       "enabled": true,
+      "type": "png",
       "dpi": 300
     }
-  },
-  "run": {
-    "task": "vqe-optimization",
-    "master_seed": 12345,
-    "verbosity": 3
   },
   "target_observable": {
     "type": "TFIH",
@@ -24,7 +18,7 @@
   },
   "system": {
     "n_qubits": 5,
-    "n_layers": 2,
+    "n_layers": 20,
     "drift": "XY",
     "time_evolution": {
       "total_time": 20,
@@ -36,7 +30,7 @@
   },
   "noise": {
     "drift_noise":{
-      "enabled": true,
+      "enabled": false,
       "type": "Depolarizing",
       "strength": 0.001
       },
@@ -54,7 +48,7 @@
   "parameters": {
     "random_initialization": {
       "enabled": true,
-      "seed": 12345
+      "seed": null
     },
     "values": null,
     "constraints":{

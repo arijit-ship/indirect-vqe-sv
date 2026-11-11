@@ -1,5 +1,4 @@
 """main.py: reads config.json, initializes Config, and executes VQE.
-Acts strictly as an interface/orchestrator with zero core VQE/physics logic.
 
 Usage:
     python run_vqe.py config-test.json
@@ -28,6 +27,9 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+# Keep DEBUG for our own code, but silence noisy third-party libraries
+for noisy in ("matplotlib", "PIL"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 
 def load_json(path):
     path = Path(path)
@@ -119,10 +121,15 @@ def main():
 
         with open(summary_file, "w") as f:
             json.dump(clean_summary_data, f, indent=2)
-            
+
+         # Draw the circuit (needs a file path, so it lives inside the output_dir block)
+        if cfg.draw_cricuit_enabled:
+            circuit_file = cfg.output_dir / f"{file_name_prefix}_circuit_{experiment_id}_{timestamp_file}"
+            vqe_solver.draw_circuit(str(circuit_file), dpi=cfg.draw_cricuit_dpi)   
         print("\n" + "=" * 50)
         print(f"Execution complete. Summary saved to: {summary_file.resolve()}")
         print("=" * 50)
+
 
 
 if __name__ == "__main__":

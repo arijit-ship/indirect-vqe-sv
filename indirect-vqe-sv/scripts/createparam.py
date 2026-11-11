@@ -1,10 +1,8 @@
 import numpy as np
 
+
 def create_random_params(
-        per_layer_angle_params: int,
-        n_layers: int,
-        time: float,
-        seed: int = None
+    per_layer_angle_params: int, n_layers: int, time: float, seed: int = None
 ) -> dict:
     """
     Creates random parameters for the VQE ansatz.
@@ -22,8 +20,8 @@ def create_random_params(
     if seed is not None:
         np.random.seed(seed)
     else:
-        raise ValueError("Seed must be provided for reproducibility.")
-    
+        pass
+
     # Time parameters (one per layer, sorted to be monotonically increasing)
     time_params = np.random.uniform(0, time, n_layers)
     time_params = np.sort(time_params)
@@ -31,18 +29,19 @@ def create_random_params(
     # Generate random angle parameters
     total_angle_params = per_layer_angle_params * n_layers
     params = np.random.uniform(0, 1, total_angle_params) * 1e-1
-    
+
     # Combine time and angle parameters
     combined_params = np.concatenate((time_params, params))
 
     param_dict = {
         "time_params": time_params,
         "angle_params": params,
-        "combined_params": combined_params
+        "combined_params": combined_params,
     }
 
     return param_dict
-    
+
+
 # def create_param(layer: int, gateset: int, ti: float, tf: float) -> np.ndarray:
 #     """
 #     Creates initial parameters for the citcuit. Parameters are time, and theta: angle for rotation gates.

@@ -8,6 +8,7 @@ from openfermion.ops.operators.qubit_operator import QubitOperator
 from qulacs import Observable
 from qulacs.observable import create_observable_from_openfermion_text
 
+
 def create_xy_hamiltonian(num_qubits: int) -> Observable:
     r"""
     Creates a one-dimensional XY-model Hamiltonian.
@@ -31,8 +32,8 @@ def create_xy_hamiltonian(num_qubits: int) -> Observable:
 
     return create_observable_from_openfermion_text(str(hami))
 
-def create_tf_ising_hamiltonian(num_qubits: int, j: float, h: float) -> Observable:
 
+def create_tf_ising_hamiltonian(num_qubits: int, j: float, h: float) -> Observable:
     r"""
     Creates a one-dimensional transverse-field Ising Hamiltonian.
 

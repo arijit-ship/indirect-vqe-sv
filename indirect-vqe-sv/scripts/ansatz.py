@@ -27,14 +27,17 @@ from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+
 def create_ansatz_drift_xy(
     system: dict,
     noise: dict,
     parameters: List,
     verbosity: int = 1,
-    return_layer_details=False,
+    return_layer_details: bool=False,
+    drift_type: str = "xy"
 ) -> dict:
 
+    circuit_chunk = None
     try:
         # Qubit and layer
         num_qubits: int = system["n_qubits"]
@@ -118,6 +121,8 @@ def create_ansatz_drift_xy(
 
             except Exception as e:
                 raise ValueError(f"[ EROR ] Misconfiguration: {e}") from e
+        
+        flag += 4
 
         # CZ Gate
         if cz_gate_noise_enabled:
@@ -142,8 +147,6 @@ def create_ansatz_drift_xy(
         if layer == 0:
             ti = 0.0
             tf = parameters[0]
-            if verbosity >= 3:
-                logger.info(f"Layer-{layer} stating time: {ti}")
         else:
             ti = parameters[layer - 1]
             tf = parameters[layer]
@@ -172,8 +175,8 @@ def create_ansatz_drift_xy(
         else:
 
             logger.info(f"Trotter subdivisions of layer-{layer}")
-            layer_details = None
-            circuit, layer_details = lie_trotter_evo(
+            current_details = None
+            circuit, current_details = lie_trotter_evo(
                 num_qubits=num_qubits,
                 circuit=circuit,
                 tf=tf,
@@ -185,12 +188,21 @@ def create_ansatz_drift_xy(
                 noise_strength=drift_noise_strength,
                 curent_layer_index=layer,
                 verbosity=verbosity,
-                return_layer_details=False,
+                return_layer_details=return_layer_details,
             )
+            if return_layer_details:
+                all_layer_details.append(current_details)
+
+        if circuit_chunk is None:
+            circuit_chunk = circuit.copy()
+            if verbosity >= 3:
+                logging.info(f"Circuit chunk copied at layer: {layer}")
 
     ansatz_dict = {
         "circuit": circuit,
-        "layer_details": all_layer_details if all_layer_details else None,
+        "layer_details": all_layer_details,
+        "drift_hamiltonian_string": str(xy_drift_hamiltonian),
+        "circuit_chunk": circuit_chunk
     }
     return ansatz_dict
 
@@ -232,9 +244,11 @@ def lie_trotter_evo(
     layer_details = None
     if verbosity >= 3 and return_layer_details:
         layer_details = {
+            "layer_index": curent_layer_index,
+            "time": [ti, tf],
             "total_steps": n_i,
             "noise_probability": noise_probability,
-            "steps": [],
+            "deep_trotter": [],
         }
 
     # Fast loop execution
@@ -246,8 +260,8 @@ def lie_trotter_evo(
 
         # Only append to the list if tracing is explicitly turned on
         if layer_details is not None:
-            layer_details["steps"].append(
-                {"deep_trotter": {"step_loc": i, "time": [ti_sub, tf_sub]}}
+            layer_details["deep_trotter"].append(
+                {"step_loc": i, "time": [ti_sub, tf_sub]}
             )
 
     return circuit, layer_details

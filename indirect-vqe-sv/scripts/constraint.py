@@ -151,12 +151,15 @@ def create_time_constraints_for_COBLYA(
 
     # t_i - t_{i-1} >= 0
     for i in range(1, time_params_length):
-        constraints.append({
-            "type": "ineq",
-            "fun": lambda x, i=i: x[i] - x[i - 1]  # i=i captures loop var
-        })
+        constraints.append(
+            {
+                "type": "ineq",
+                "fun": lambda x, i=i: x[i] - x[i - 1],  # i=i captures loop var
+            }
+        )
 
     return constraints
+
 
 def create_time_constraints_with_mingap(
     time_params_length: int,
