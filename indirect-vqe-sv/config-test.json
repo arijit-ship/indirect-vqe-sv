@@ -18,12 +18,12 @@
   },
   "system": {
     "n_qubits": 5,
-    "n_layers": 20,
+    "n_layers": 2,
     "drift": "XY",
     "time_evolution": {
       "total_time": 20,
       "totter_subdivide": {
-        "enabled": false,
+        "enabled": true,
         "step_length": 0.1
       }
     }

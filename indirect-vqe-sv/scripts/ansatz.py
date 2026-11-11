@@ -38,6 +38,7 @@ def create_ansatz_drift_xy(
 ) -> dict:
 
     circuit_chunk = None
+
     try:
         # Qubit and layer
         num_qubits: int = system["n_qubits"]
@@ -73,7 +74,7 @@ def create_ansatz_drift_xy(
         raise KeyError(f"[ EROR ] Misconfiguration: {e}")
 
     # Drift Hamiltonian is XY
-    xy_drift_hamiltonian: Observable = create_xy_hamiltonian(num_qubits=num_qubits)
+    drift_hamiltonian: Observable = create_xy_hamiltonian(num_qubits=num_qubits)
     circuit: QuantumCircuit = QuantumCircuit(num_qubits)
     flag: int = num_layers  # Tracking angles in param ndarrsy
 
@@ -108,6 +109,9 @@ def create_ansatz_drift_xy(
                     rotation_gate_noise_probability,
                 )
 
+                if verbosity >= 3:
+                    logger.info(f"{rotation_gate_noise_probability}-noise added to RX & RY gates with probability: {rotation_gate_noise_probability}")
+
             except Exception as e:
                 raise ValueError(f"[ EROR ] Misconfiguration: {e}") from e
         else:
@@ -119,10 +123,16 @@ def create_ansatz_drift_xy(
                 circuit.add_gate(RY(0, parameters[flag + 2]))
                 circuit.add_gate(RY(1, parameters[flag + 3]))
 
+                if verbosity >= 3:
+                    logging.info(f"RX, RY gates added without any noise")
+
             except Exception as e:
                 raise ValueError(f"[ EROR ] Misconfiguration: {e}") from e
-        
-        flag += 4
+
+        # Increment of the flag depends on the size of the control unit.
+        # For XY drift, size of the control unit is 4.
+        # For Heisenberg drift, the size of the control unit is 2.
+        flag += {"xy": 4, "heisenberg": 2}.get(drift_type.lower(), 0)
 
         # CZ Gate
         if cz_gate_noise_enabled:
@@ -134,16 +144,19 @@ def create_ansatz_drift_xy(
                 circuit.add_noise_gate(
                     Identity(1), cz_gate_noise_type, cz_gate_noise_probability
                 )
+                logger.info(f"{cz_gate_noise_type}-noise added to CZ gate with probability: {cz_gate_noise_probability}")
 
             except Exception as e:
                 raise ValueError(f"[ EROR ] Misconfiguration: {e}") from e
 
         else:
             circuit.add_CZ_gate(0, 1)
+            logger.info(f"CZ gate added without any noise")
 
         # Drift evolution
-        ## Add multi-qubit U gate
-        # 2. Determine time boundaries
+        ##################
+        # Add multi-qubit U gate
+        # Determine time boundaries
         if layer == 0:
             ti = 0.0
             tf = parameters[0]
@@ -151,38 +164,36 @@ def create_ansatz_drift_xy(
             ti = parameters[layer - 1]
             tf = parameters[layer]
 
+                # Current layer details
+        current_layer_details = {
+            "layer_index": layer,
+            "time": [ti, tf],
+            "drift_noise_probability": None,
+            "trotter_subdivision": None,
+        }
+
+        # Drift evolution: single step, no Trotter subdivision
         if not trotter_subdivide_enabled:
-            # logger.info(f"Layer-{layer}")
-            time_evo_gate = create_time_evo_unitary(xy_drift_hamiltonian, ti, tf)
+            time_evo_gate = create_time_evo_unitary(drift_hamiltonian, ti, tf)
             circuit.add_gate(time_evo_gate)
+
             if drift_noise_enabled:
                 drift_noise_probability: float = drift_noise_strength * (tf - ti)
                 for i in range(num_qubits):
                     circuit.add_noise_gate(
                         Identity(i), drift_noise_type, drift_noise_probability
                     )
-                if return_layer_details:
-                    current_details = {
-                        "layer_index": layer,
-                        "time": [ti, tf],
-                        "noise_probability": drift_noise_probability,
-                    }
-                    all_layer_details.append(current_details)
-                if verbosity >= 3:
-                    logger.info(
-                        f"Layer-{layer} noise-{drift_noise_type} probability: {drift_noise_probability}"
-                    )
-        else:
+                current_layer_details["drift_noise_probability"] = drift_noise_probability
 
-            logger.info(f"Trotter subdivisions of layer-{layer}")
-            current_details = None
-            circuit, current_details = lie_trotter_evo(
+        # Drift evolution: Lie-Trotter subdivision
+        else:
+            circuit, trotter_details = lie_trotter_evo(
                 num_qubits=num_qubits,
                 circuit=circuit,
                 tf=tf,
                 ti=ti,
                 delta_t=trotter_subdivide_step_length,
-                drift_hamiltonian=xy_drift_hamiltonian,
+                drift_hamiltonian=drift_hamiltonian,
                 noise_enabled=drift_noise_enabled,
                 noise_type=drift_noise_type,
                 noise_strength=drift_noise_strength,
@@ -190,81 +201,77 @@ def create_ansatz_drift_xy(
                 verbosity=verbosity,
                 return_layer_details=return_layer_details,
             )
-            if return_layer_details:
-                all_layer_details.append(current_details)
+            # Stored under its own key. It is None unless verbosity >= 3
+            # and return_layer_details, because of how lie_trotter_evo builds it.
+            current_layer_details["trotter_subdivision"] = trotter_details
+
+        if return_layer_details:
+            all_layer_details.append(current_layer_details)
+        if verbosity >= 3:
+            logger.info(f"Layer-{layer} details: {current_layer_details}")
 
         if circuit_chunk is None:
             circuit_chunk = circuit.copy()
             if verbosity >= 3:
-                logging.info(f"Circuit chunk copied at layer: {layer}")
+                logger.info(f"Circuit chunk copied at layer: {layer}")
 
     ansatz_dict = {
         "circuit": circuit,
         "layer_details": all_layer_details,
-        "drift_hamiltonian_string": str(xy_drift_hamiltonian),
+        "drift_hamiltonian_string": str(drift_hamiltonian),
         "circuit_chunk": circuit_chunk
     }
     return ansatz_dict
 
 
 def lie_trotter_evo(
-    num_qubits,
-    circuit,
-    tf,
-    ti,
-    delta_t,
-    drift_hamiltonian,
-    curent_layer_index=0,
-    noise_enabled=False,
-    noise_type="Depolarizing",
-    noise_strength=0.0,
+    num_qubits: int,
+    circuit: QuantumCircuit,
+    tf: float,
+    ti: float,
+    delta_t: float,
+    drift_hamiltonian: Observable,
+    curent_layer_index: int = 0,
+    noise_enabled: bool = False,
+    noise_type: str = "Depolarizing",
+    noise_strength: float = 0.0,
     verbosity: int = 3,
     return_layer_details: bool = False,
 ):
-    n_i = int(np.ceil(abs(tf - ti) / delta_t)) if delta_t > 0 else 1
-    if n_i == 0:
-        n_i = 1
+    n_steps = int(np.ceil(abs(tf - ti) / delta_t)) if delta_t > 0 else 1
+    if n_steps == 0:
+        n_steps = 1
 
-    noise_probability = noise_strength * abs(tf - ti) / n_i
-    ti_sub = ti / n_i
-    tf_sub = tf / n_i
+    #noise_probability = noise_strength * abs(tf - ti) / n_steps
+    ti_sub = ti/n_steps
+    tf_sub = tf/n_steps
+    noise_probability_sub = noise_strength * abs(tf_sub - ti_sub)
 
     time_evo_gate = create_time_evo_unitary(
         hamiltonian=drift_hamiltonian, ti=ti_sub, tf=tf_sub
     )
 
-    # Logging is cheap—safe to run whenever verbosity >= 3
     if verbosity >= 3:
-        logger.info(f"Number of subdivisions of layer-{curent_layer_index}: {n_i}")
-        logger.info(
-            f"Subdivision layer-{curent_layer_index} noise-{noise_type} probability: {noise_probability}"
-        )
+        logger.info(f"Number of subdivisions of layer-{curent_layer_index}: {n_steps}")
 
-    # Only allocate the heavy trotter tracking dictionary & list if requested
-    layer_details = None
-    if verbosity >= 3 and return_layer_details:
-        layer_details = {
-            "layer_index": curent_layer_index,
-            "time": [ti, tf],
-            "total_steps": n_i,
-            "noise_probability": noise_probability,
-            "deep_trotter": [],
+    # Details for this layer, built only when requested (the cost function never asks)
+    trotter_dict = None
+    if return_layer_details:
+        trotter_dict = {
+            "total_steps": n_steps,
+            "step_time": [ti_sub, tf_sub],
+            "noise_prob": noise_probability_sub if noise_enabled else None,
         }
 
-    # Fast loop execution
-    for i in range(n_i):
+    for i in range(n_steps):
         circuit.add_gate(time_evo_gate)
         if noise_enabled:
             for q in range(num_qubits):
-                circuit.add_noise_gate(Identity(q), "Depolarizing", noise_probability)
+                circuit.add_noise_gate(Identity(q), noise_type, noise_probability_sub)
+            if verbosity >= 3:
+                logger.info(f"Subdivision layer-{curent_layer_index} noise-{noise_type} probability: {noise_probability_sub}")
 
-        # Only append to the list if tracing is explicitly turned on
-        if layer_details is not None:
-            layer_details["deep_trotter"].append(
-                {"step_loc": i, "time": [ti_sub, tf_sub]}
-            )
-
-    return circuit, layer_details
+    return circuit, trotter_dict
 
 
 def create_ansatz_drift_heisenberg(): ...
