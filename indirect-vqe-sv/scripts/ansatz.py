@@ -11,19 +11,16 @@ parameterseter layout (length = n_layers + 2 * k * n_layers):
     parameterseters[n_layers : ]       -> per layer, per control qubit i: [RX angle, RY angle]
 """
 
-from typing import List, Tuple
+import logging
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
-import logging
-from qulacs import QuantumCircuit, Observable
+from qulacs import Observable, QuantumCircuit
 from qulacs.gate import CZ, RX, RY, Identity
 
 from .config_validator import validate_noise_config, validate_system_config
-from .hamiltonian import create_xy_hamiltonian
+from .hamiltonian import create_heisenberg_hamiltonian, create_xy_hamiltonian
 from .time_evolution_gate import create_time_evo_unitary
-
-
-from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +35,11 @@ def create_ansatz_drift_xy(
 ) -> dict:
 
     circuit_chunk = None
+    drift_hamiltonian: Observable = None
+
+    num_rot_gates: int = 0
+    num_cz_gates: int = 0
+    num_time_evo_gate: int = 0
 
     try:
         # Qubit and layer
@@ -46,18 +48,12 @@ def create_ansatz_drift_xy(
 
         # Time evolution
         total_evolution_time: float = system["time_evolution"]["total_time"]
-        trotter_subdivide_enabled: bool = system["time_evolution"]["totter_subdivide"][
-            "enabled"
-        ]
-        trotter_subdivide_step_length: float = system["time_evolution"][
-            "totter_subdivide"
-        ]["step_length"]
+        trotter_subdivide_enabled: bool = system["time_evolution"]["totter_subdivide"]["enabled"]
+        trotter_subdivide_step_length: float = system["time_evolution"]["totter_subdivide"]["step_length"]
 
         # Noise in control unit
         rotation_gate_noise_enabled: bool = noise["control_unit_noise"]["enabled"]
-        rotation_gate_noise_probability: float = noise["control_unit_noise"][
-            "probability"
-        ]
+        rotation_gate_noise_probability: float = noise["control_unit_noise"]["probability"]
         rotation_gate_noise_type: str = noise["control_unit_noise"]["type"]
 
         # Noise in CZ
@@ -73,8 +69,16 @@ def create_ansatz_drift_xy(
     except KeyError as e:
         raise KeyError(f"[ EROR ] Misconfiguration: {e}")
 
+    # Drift Hamiltonian: XY or Heisenebrg
+    if drift_type.lower() == "xy":
+        drift_hamiltonian = create_xy_hamiltonian(num_qubits=num_qubits)
+    elif drift_type.lower() == "heisenberg":
+        drift_hamiltonian = create_heisenberg_hamiltonian(num_qubits=num_qubits)
+    else:
+        raise ValueError("[ Error ] Invalid drift type. Valid drifts are: xy, heisenberg")
+
     # Drift Hamiltonian is XY
-    drift_hamiltonian: Observable = create_xy_hamiltonian(num_qubits=num_qubits)
+    # drift_hamiltonian: Observable = create_xy_hamiltonian(num_qubits=num_qubits)
     circuit: QuantumCircuit = QuantumCircuit(num_qubits)
     flag: int = num_layers  # Tracking angles in param ndarrsy
 
@@ -108,6 +112,7 @@ def create_ansatz_drift_xy(
                     rotation_gate_noise_type,
                     rotation_gate_noise_probability,
                 )
+                num_rot_gates += 4
 
                 if verbosity >= 3:
                     logger.info(
@@ -125,6 +130,7 @@ def create_ansatz_drift_xy(
                 circuit.add_gate(RY(0, parameters[flag + 2]))
                 circuit.add_gate(RY(1, parameters[flag + 3]))
 
+                num_cz_gates += 1
                 if verbosity >= 3:
                     logging.info(f"RX, RY gates added without any noise")
 
@@ -140,12 +146,8 @@ def create_ansatz_drift_xy(
         if cz_gate_noise_enabled:
             try:
                 circuit.add_CZ_gate(0, 1)
-                circuit.add_noise_gate(
-                    Identity(0), cz_gate_noise_type, cz_gate_noise_probability
-                )
-                circuit.add_noise_gate(
-                    Identity(1), cz_gate_noise_type, cz_gate_noise_probability
-                )
+                circuit.add_noise_gate(Identity(0), cz_gate_noise_type, cz_gate_noise_probability)
+                circuit.add_noise_gate(Identity(1), cz_gate_noise_type, cz_gate_noise_probability)
                 logger.info(
                     f"{cz_gate_noise_type}-noise added to CZ gate with probability: {cz_gate_noise_probability}"
                 )
@@ -184,12 +186,8 @@ def create_ansatz_drift_xy(
             if drift_noise_enabled:
                 drift_noise_probability: float = drift_noise_strength * (tf - ti)
                 for i in range(num_qubits):
-                    circuit.add_noise_gate(
-                        Identity(i), drift_noise_type, drift_noise_probability
-                    )
-                current_layer_details["drift_noise_probability"] = (
-                    drift_noise_probability
-                )
+                    circuit.add_noise_gate(Identity(i), drift_noise_type, drift_noise_probability)
+                current_layer_details["drift_noise_probability"] = drift_noise_probability
 
         # Drift evolution: Lie-Trotter subdivision
         else:
@@ -253,9 +251,7 @@ def lie_trotter_evo(
     tf_sub = tf / n_steps
     noise_probability_sub = noise_strength * abs(tf_sub - ti_sub)
 
-    time_evo_gate = create_time_evo_unitary(
-        hamiltonian=drift_hamiltonian, ti=ti_sub, tf=tf_sub
-    )
+    time_evo_gate = create_time_evo_unitary(hamiltonian=drift_hamiltonian, ti=ti_sub, tf=tf_sub)
 
     if verbosity >= 3:
         logger.info(f"Number of subdivisions of layer-{curent_layer_index}: {n_steps}")

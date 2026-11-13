@@ -1,14 +1,14 @@
-import os
+import json
 import logging
-
+import os
 from functools import cached_property
+
+import matplotlib.pyplot as plt
 import numpy as np
 from qulacs import DensityMatrix, QuantumCircuit
 from qulacsvis import circuit_drawer
 from scipy.optimize import minimize
 
-import json
-import matplotlib.pyplot as plt
 from .ansatz import create_ansatz_drift_heisenberg, create_ansatz_drift_xy
 from .config import Config
 from .constraint import create_tf_fixed_constraint, create_time_constraints_with_mingap
@@ -21,13 +21,13 @@ logger = logging.getLogger(__name__)  # logging is configured in run_vqe.py
 class VQE:
     """Variational optimization of a time-evolution ansatz for a target Hamiltonian.
 
-    All settings live in `self.cfg`. Only values derived from it are stored here.
-
     Parameter vector layout: [time params (n_layers) | angle params].
     Both constraint builders assume the time parameters come first.
     """
 
     # Number of angle parameters per layer for each drift type
+    # For XY drift, control unit: qubits 1 and 2 i.e. total 4 rotation gates.
+    # For Heisenberg drift, control unit: qubit 1 only i.e. total 2 rotation gates.
     ANGLE_PARAMS_PER_LAYER = {"xy": 4, "heisenberg": 2}
 
     def __init__(self, config) -> None:
@@ -85,13 +85,9 @@ class VQE:
 
     def _build_observable(self):
         if self.cfg.target_observable_type.lower() != "tfih":
-            raise ValueError(
-                f"Unsupported observable type: {self.cfg.target_observable_type}"
-            )
+            raise ValueError(f"Unsupported observable type: {self.cfg.target_observable_type}")
         coeffs = self.cfg.target_observable_coefficients
-        return create_tf_ising_hamiltonian(
-            num_qubits=self.cfg.n_qubits, j=coeffs["j"], h=coeffs["h"]
-        )
+        return create_tf_ising_hamiltonian(num_qubits=self.cfg.n_qubits, j=coeffs["j"], h=coeffs["h"])
 
     def reset_counters(self) -> None:
         self.cost_fn_calling_counter = 0
@@ -127,11 +123,11 @@ class VQE:
 
         if self.seed is not None:
             random_seed = self.seed
-            #np.random.seed(self.seed)
+            # np.random.seed(self.seed)
         else:
             random_seed = int(np.random.randint(0, 2**31 - 1))
             self.new_random_seed = random_seed
-            #np.random.seed(random_seed)
+            # np.random.seed(random_seed)
 
         random_params = create_random_params(
             per_layer_angle_params=self.per_layer_angle_params,
@@ -142,17 +138,9 @@ class VQE:
 
         if self.cfg.verbosity >= 2:
             logger.info(f"Random init, seed={self.seed}")
-            logger.info(
-                f"For drift: {self.drift}, per layer angle param count: {self.per_layer_angle_params}"
-            )
-            logger.info(
-                f"Time params ({len(random_params['time_params'])}): "
-                f"{random_params['time_params']}"
-            )
-            logger.info(
-                f"Angle params ({len(random_params['angle_params'])}): "
-                f"{random_params['angle_params']}"
-            )
+            logger.info(f"For drift: {self.drift}, per layer angle param count: {self.per_layer_angle_params}")
+            logger.info(f"Time params ({len(random_params['time_params'])}): " f"{random_params['time_params']}")
+            logger.info(f"Angle params ({len(random_params['angle_params'])}): " f"{random_params['angle_params']}")
 
         return np.array(random_params["combined_params"], dtype=float)
 
@@ -177,9 +165,7 @@ class VQE:
             )
         raise ValueError(f"Unsupported drift type: {self.cfg.drift}")
 
-    def _cost_function(
-        self, params: np.ndarray, return_layer_details: bool = False
-    ) -> float:
+    def _cost_function(self, params: np.ndarray, return_layer_details: bool = False) -> float:
         state = DensityMatrix(self.cfg.n_qubits)
         circuit = self._create_ansatz(params, return_layer_details)["circuit"]
         circuit.update_quantum_state(state)
@@ -187,13 +173,11 @@ class VQE:
 
         self.cost_fn_calling_counter += 1
         if self.init_state is not None:
-            self.init_state = self.init_state = state.copy()
+            self.init_state = state.copy()
         else:
             pass
         if self.cfg.verbosity >= 1:
-            logger.info(
-                f"Current cost: {cost} with counter: {self.cost_fn_calling_counter}"
-            )
+            logger.info(f"Current cost: {cost} with counter: {self.cost_fn_calling_counter}")
         return cost
 
     # ------------------------------------------------------------------
@@ -254,9 +238,7 @@ class VQE:
         min_cost = float(opt_solution.fun)
 
         # After optimization, excute the circuit again with optimized parameters
-        ansatz = self._create_ansatz(
-            params=optimized_parameters, return_layer_details=True
-        )
+        ansatz = self._create_ansatz(params=optimized_parameters, return_layer_details=True)
         self.ansatz_final = ansatz["circuit"]
         layer_details = ansatz["layer_details"]
         drift_hamiltonian_string = ansatz["drift_hamiltonian_string"]
@@ -282,9 +264,7 @@ class VQE:
         }
         return output_dict
 
-    def draw_circuit(
-        self, file_path: str, dpi: int = 300, file_type: str | None = None
-    ) -> None:
+    def draw_circuit(self, file_path: str, dpi: int = 300, file_type: str | None = None) -> None:
         """Save a drawing of the first ansatz layer (call after run())."""
         if self.circuit_chunk is None:
             logger.warning("No circuit chunk available. Run the optimization first.")
@@ -311,7 +291,7 @@ class VQE:
 
         try:
             circuit_data = self.ansatz_final.to_json()
-            
+
             # If to_json() returns a raw JSON string, load it and re-dump with indent for readability
             if isinstance(circuit_data, str):
                 try:
@@ -320,7 +300,7 @@ class VQE:
                     return circuit_data  # Return as-is if it's already a plain string
 
             return json.dumps(circuit_data, indent=2)
-            
+
         except Exception as e:
             logger.error(f"Could not serialize circuit to JSON: {e}")
             return None
@@ -331,8 +311,7 @@ class VQE:
         m = np.asarray(state.get_matrix())
         return {"real": m.real.tolist(), "imag": m.imag.tolist()}
 
-    def export_quantum_states(self, export_initial_state: bool = False,
-                            export_final_state: bool = False) -> dict:
+    def export_quantum_states(self, export_initial_state: bool = False, export_final_state: bool = False) -> dict:
         """Return the requested states as {"real": ..., "imag": ...} dicts (None if unavailable)."""
         states = {}
         for wanted, key, attr in (
@@ -348,5 +327,3 @@ class VQE:
             else:
                 states[key] = self._matrix_to_json(state)
         return states
-
-

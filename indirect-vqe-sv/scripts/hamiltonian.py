@@ -59,3 +59,29 @@ def create_tf_ising_hamiltonian(num_qubits: int, j: float, h: float) -> Observab
         hami += h * QubitOperator(f"Z{i}")
 
     return create_observable_from_openfermion_text(str(hami))
+
+
+def create_heisenberg_hamiltonian(num_qubits: int) -> Observable:
+    r"""
+    Creates a one-dimensional Heisenberg-Hamiltonian.
+
+    Mathematical Form:
+
+        .. math::
+        H_\text{Heisenberg} = \frac{1}{2}\sum_{k=1}^{N-1} X_k X_{k+1} + Y_k Y_{k+1} + Z_k Z_{k+1} .
+
+
+    Args:
+        nqubits (int): The number of qubits.
+
+    Returns:
+        Observable: Qulacs observable representing the Hamiltonian.
+    """
+    hami = QubitOperator()
+
+    for i in range(num_qubits - 1):
+        hami += QubitOperator(f"X{i} X{i+1}")
+        hami += QubitOperator(f"Y{i} Y{i+1}")
+        hami += QubitOperator(f"Z{i} Z{i+1}")
+
+    return create_observable_from_openfermion_text(str(hami))

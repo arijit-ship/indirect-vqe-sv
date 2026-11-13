@@ -1,9 +1,7 @@
 import numpy as np
 
 
-def create_random_params(
-    per_layer_angle_params: int, n_layers: int, time: float, seed: int = None
-) -> dict:
+def create_random_params(per_layer_angle_params: int, n_layers: int, time: float, seed: int = None) -> dict:
     """
     Creates random parameters for the VQE ansatz.
 

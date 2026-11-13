@@ -1,7 +1,7 @@
 {
   "output": {
     "output_dir": "../results/test_1",
-    "output_prefix": "test",
+    "output_prefix": "my-super-good-text-vqe-experiments",
     "verbosity": 3,
     "draw_circut_layer":{
       "enabled": true,
@@ -23,7 +23,7 @@
   },
   "system": {
     "n_qubits": 5,
-    "n_layers": 20,
+    "n_layers": 2,
     "drift": "XY",
     "time_evolution": {
       "total_time": 20,

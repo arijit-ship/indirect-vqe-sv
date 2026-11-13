@@ -5,21 +5,36 @@ Usage:
 """
 
 import argparse
-import logging
 import json
+import logging
 import os
 import platform
 import sys
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import psutil
 
-from scripts.vqe import VQE
 from scripts.config import Config
+from scripts.vqe import VQE
 
+# Constants
+# Standardized file name chunks
+CONFIG_FILE_NAME_CHUNK: str = "source_config"
+VQE_LOG_FILE_NAME_CHUNK: str = "vqe_logs"
+CIRCUIT_FIGURE_FILE_NAME_CHUNK: str = "circuit_figure"
+INIT_QUANTUM_STATE_FILE_NAME_CHUNK: str = "quantum_state"
+FINAL_QUANTUM_STATE_FILE_NAME_CHUNK: str = "final_state"
+CIRCUIT_JSON_FILE_NAME_CHUNK: str = "circuit_json"
+
+# File name prefix length safety cap
+MAX_FILE_NAME_PREFIX_LENGTH: int = 30
+
+# Repeating symbol in print
+REPEAT_SYMBOL: int = 50
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -59,13 +74,10 @@ def convert_numpy_types(obj):
         return [convert_numpy_types(item) for item in obj]
     return obj
 
+
 def main():
-    parser = argparse.ArgumentParser(
-        description="Indirect Control VQE Execution Script"
-    )
-    parser.add_argument(
-        "config", nargs="?", default="config.json", help="path to config.json"
-    )
+    parser = argparse.ArgumentParser(description="Indirect Control VQE Execution Script")
+    parser.add_argument("config", nargs="?", default="config.json", help="path to config.json")
     args = parser.parse_args()
 
     # Loading the configuration
@@ -73,36 +85,37 @@ def main():
     cfg = Config(raw_config)
 
     # Setup timestamps and experiment IDs
-    experiment_id = f"vqe_{int(time.time())}"
+    experiment_id = f"vqe_{uuid.uuid4().hex[:8]}"
     timestamp_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     timestamp_file = datetime.now().strftime("%Y%m%d_%H%M%S")
-    #run_index = getattr(cfg, "run_index", 0)
+    # run_index = getattr(cfg, "run_index", 0)
 
     # File name prefix to be used in output log
-    file_name_prefix = cfg.output.get("output_prefix", None)
-    # Standardized file name chunks (imported or defined locally)
-    CONFIG_FILE_NAME_CHUNK: str = "source_config"
-    VQE_LOG_FILE_NAME_CHUNK: str = "vqe_logs"
-    CIRCUIT_FIGURE_FILE_NAME_CHUNK: str = "circuit_figure"
-    INIT_QUANTUM_STATE_FILE_NAME_CHUNK: str = "quantum_state"
-    FINAL_QUANTUM_STATE_FILE_NAME_CHUNK: str = "final_state"
-    CIRCUIT_JSON_FILE_NAME_CHUNK: str = "circuit_json"
+    # Retrieve prefix and trim to a reasonable maximum length (e.g., 30 chars)
+    raw_prefix = cfg.output.get("output_prefix", "experiment")
+    if raw_prefix:
+        # Sanitize and trim: keeps alphanumeric characters and underscores, capped at 30 chars
+        file_name_prefix = "".join(c for c in raw_prefix if c.isalnum() or c in ("_", "-"))[
+            :MAX_FILE_NAME_PREFIX_LENGTH
+        ]
+    else:
+        file_name_prefix = "vqe_run"
 
-    # 2. Setup output directories and save a copy of the config used
+    # Setup output directory
     if cfg.output_dir is not None:
-
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        with open(
-            cfg.output_dir
-            / f"{file_name_prefix}_{CONFIG_FILE_NAME_CHUNK}_{experiment_id}_{timestamp_file}.json",
-            "w",
-        ) as f:
-            json.dump(raw_config, f, indent=2)
+        logging.info(f"Checking for ourput directory")
+        # with open(
+        #     cfg.output_dir
+        #     / f"{file_name_prefix}_{CONFIG_FILE_NAME_CHUNK}_{experiment_id}_{timestamp_file}.json",
+        #     "w",
+        # ) as f:
+        #     json.dump(raw_config, f, indent=2)
 
     if cfg.verbosity >= 1:
-        print("=" * 50)
+        print("=" * REPEAT_SYMBOL)
         print(f"Starting Task: {cfg.task} | Qubits: {cfg.n_qubits}")
-        print("=" * 50)
+        print("=" * REPEAT_SYMBOL)
 
     # VQE execution with timer
     start_time = time.time()
@@ -119,7 +132,7 @@ def main():
         "id": experiment_id,
         "datetime": timestamp_start,
         "datetime_finished": timestamp_finished,
-        #"run_index": run_index,
+        # "run_index": run_index,
         "python_version": sys.version,
         "os": f"{platform.system()} {platform.release()}",
         "hostname": platform.node(),
@@ -129,8 +142,7 @@ def main():
     # Saving the the vqe log in a JSON file
     if cfg.output_dir is not None:
         summary_file = (
-            cfg.output_dir
-            / f"{file_name_prefix}_{VQE_LOG_FILE_NAME_CHUNK}_{experiment_id}_{timestamp_file}.json"
+            cfg.output_dir / f"{file_name_prefix}_{VQE_LOG_FILE_NAME_CHUNK}_{experiment_id}_{timestamp_file}.json"
         )
 
         summary_data = {
@@ -149,16 +161,17 @@ def main():
         # Draw the circuit (needs a file path, so it lives inside the output_dir block)
         if cfg.draw_cricuit_enabled:
             circuit_file_path = (
-                cfg.output_dir
-                / f"{file_name_prefix}_{CIRCUIT_FIGURE_FILE_NAME_CHUNK}_{experiment_id}_{timestamp_file}"
+                cfg.output_dir / f"{file_name_prefix}_{CIRCUIT_FIGURE_FILE_NAME_CHUNK}_{experiment_id}_{timestamp_file}"
             )
             vqe_solver.draw_circuit(str(circuit_file_path), dpi=cfg.draw_cricuit_dpi)
 
         if cfg.export_circut_json:
             circuit_json_str = vqe_solver.export_circuit_json(export_json=True)
             if circuit_json_str:
-                circuit_json_file_path = cfg.output_dir / f"{CIRCUIT_JSON_FILE_NAME_CHUNK}_{experiment_id}_{timestamp_file}.json"
-                
+                circuit_json_file_path = (
+                    cfg.output_dir / f"{CIRCUIT_JSON_FILE_NAME_CHUNK}_{experiment_id}_{timestamp_file}.json"
+                )
+
                 # Load the string back to a dict so json.dump indents the entire file properly
                 try:
                     parsed_circuit_data = json.loads(circuit_json_str)
@@ -169,10 +182,10 @@ def main():
                     "meta": experiment_meta,
                     "ansatz_circuit_optimized": parsed_circuit_data,
                 }
-                
+
                 with open(circuit_json_file_path, "w") as f:
                     json.dump(circuit_json_with_meta, f, indent=2)
-                    
+
                 logging.info(f"Circuit JSON saved to: {circuit_json_file_path.resolve()}")
 
         if cfg.export_initial_state or cfg.export_final_state:
@@ -193,9 +206,10 @@ def main():
                 path.write_text(json.dumps(payload, indent=2))
                 logging.info(f"{key} saved to: {path.resolve()}")
 
-        print("\n" + "=" * 50)
+        print("\n" + "=" * REPEAT_SYMBOL)
         print(f"Execution complete. Summary saved to: {summary_file.resolve()}")
-        print("=" * 50)
+        print("=" * REPEAT_SYMBOL)
+
 
 if __name__ == "__main__":
     main()

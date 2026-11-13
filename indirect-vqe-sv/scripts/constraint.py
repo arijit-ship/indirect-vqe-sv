@@ -47,9 +47,10 @@ Based on:
 https://github.com/tanan/vqe-by-indirect-ctl
 """
 
+from typing import List
+
 import numpy as np
 from scipy.optimize import LinearConstraint
-from typing import List
 
 
 def create_time_constraints(

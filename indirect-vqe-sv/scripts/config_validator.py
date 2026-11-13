@@ -5,40 +5,28 @@ from qulacs import QuantumCircuit
 def validate_system_config(system: dict) -> dict:
     """Validates and extracts parameters from the system configuration dictionary."""
     if system is None:
-        raise ValueError(
-            "[MISSING PARAMETER]: system configuration dictionary is missing."
-        )
+        raise ValueError("[MISSING PARAMETER]: system configuration dictionary is missing.")
 
     n_qubits = system.get("n_qubits")
     if n_qubits is None:
-        raise ValueError(
-            "[MISSING PARAMETER]: n_qubits is missing. Check the configuration file."
-        )
+        raise ValueError("[MISSING PARAMETER]: n_qubits is missing. Check the configuration file.")
 
     n_layers = system.get("n_layers")
     if n_layers is None:
-        raise ValueError(
-            "[MISSING PARAMETER]: n_layers is missing. Check the configuration file."
-        )
+        raise ValueError("[MISSING PARAMETER]: n_layers is missing. Check the configuration file.")
 
     control_unit_size = system.get("control_unit_size")
     if control_unit_size is None:
-        raise ValueError(
-            "[MISSING PARAMETER]: control_unit_size is missing. Check the configuration file."
-        )
+        raise ValueError("[MISSING PARAMETER]: control_unit_size is missing. Check the configuration file.")
 
     drift = system.get("drift")
     if drift is None:
-        raise ValueError(
-            "[MISSING PARAMETER]: drift is missing. Check the configuration file."
-        )
+        raise ValueError("[MISSING PARAMETER]: drift is missing. Check the configuration file.")
 
     time_config = system.get("time_evolution", {})
     total_time = time_config.get("total_time")
     if total_time is None:
-        raise ValueError(
-            "[MISSING PARAMETER]: total_time is missing. Check the configuration file."
-        )
+        raise ValueError("[MISSING PARAMETER]: total_time is missing. Check the configuration file.")
 
     subdivide_config = time_config.get("subdivide", {})
     subdivide_enabled = subdivide_config.get("enabled", False)
@@ -58,16 +46,12 @@ def validate_system_config(system: dict) -> dict:
 def validate_noise_config(noise: dict) -> dict:
     """Validates and extracts parameters from the noise configuration dictionary."""
     if noise is None:
-        raise ValueError(
-            "[MISSING PARAMETER]: noise configuration dictionary is missing."
-        )
+        raise ValueError("[MISSING PARAMETER]: noise configuration dictionary is missing.")
 
     # 1. Drift noise
     drift_noise_cfg = noise.get("drift_noise")
     if drift_noise_cfg is None:
-        raise ValueError(
-            "[MISSING PARAMETER]: 'drift_noise' is missing in noise config."
-        )
+        raise ValueError("[MISSING PARAMETER]: 'drift_noise' is missing in noise config.")
 
     drift_enabled = drift_noise_cfg.get("enabled")
     if drift_enabled is None:
@@ -84,15 +68,11 @@ def validate_noise_config(noise: dict) -> dict:
     # 2. Control unit noise
     control_noise_cfg = noise.get("control_unit_noise")
     if control_noise_cfg is None:
-        raise ValueError(
-            "[MISSING PARAMETER]: 'control_unit_noise' is missing in noise config."
-        )
+        raise ValueError("[MISSING PARAMETER]: 'control_unit_noise' is missing in noise config.")
 
     control_enabled = control_noise_cfg.get("enabled")
     if control_enabled is None:
-        raise ValueError(
-            "[MISSING PARAMETER]: 'control_unit_noise.enabled' is missing."
-        )
+        raise ValueError("[MISSING PARAMETER]: 'control_unit_noise.enabled' is missing.")
 
     control_type = control_noise_cfg.get("type")
     if control_type is None:
@@ -100,16 +80,12 @@ def validate_noise_config(noise: dict) -> dict:
 
     control_prob = control_noise_cfg.get("probability")
     if control_prob is None:
-        raise ValueError(
-            "[MISSING PARAMETER]: 'control_unit_noise.probability' is missing."
-        )
+        raise ValueError("[MISSING PARAMETER]: 'control_unit_noise.probability' is missing.")
 
     # 3. CZ gate noise
     cz_noise_cfg = noise.get("cz_gate_noise")
     if cz_noise_cfg is None:
-        raise ValueError(
-            "[MISSING PARAMETER]: 'cz_gate_noise' is missing in noise config."
-        )
+        raise ValueError("[MISSING PARAMETER]: 'cz_gate_noise' is missing in noise config.")
 
     cz_enabled = cz_noise_cfg.get("enabled")
     if cz_enabled is None:
