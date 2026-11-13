@@ -7,6 +7,11 @@
       "enabled": true,
       "type": "png",
       "dpi": 300
+    },
+    "export_circuit_json": true,
+    "expot_quantum_states":{
+      "initial": true,
+      "final": true
     }
   },
   "target_observable": {
@@ -18,7 +23,7 @@
   },
   "system": {
     "n_qubits": 5,
-    "n_layers": 2,
+    "n_layers": 20,
     "drift": "XY",
     "time_evolution": {
       "total_time": 20,
@@ -48,7 +53,7 @@
   "parameters": {
     "random_initialization": {
       "enabled": true,
-      "seed": null
+      "seed": 512
     },
     "values": null,
     "constraints":{

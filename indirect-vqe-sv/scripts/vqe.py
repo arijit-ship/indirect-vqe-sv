@@ -3,10 +3,11 @@ import logging
 
 from functools import cached_property
 import numpy as np
-from qulacs import DensityMatrix
+from qulacs import DensityMatrix, QuantumCircuit
 from qulacsvis import circuit_drawer
 from scipy.optimize import minimize
 
+import json
 import matplotlib.pyplot as plt
 from .ansatz import create_ansatz_drift_heisenberg, create_ansatz_drift_xy
 from .config import Config
@@ -43,14 +44,26 @@ class VQE:
         self.n_angle_params = self.per_layer_angle_params * self.cfg.n_layers
         self.n_total_params = self.n_time_params + self.n_angle_params
 
+        # Seed for random parameters
+        # Seed can be none and an int
+        self.seed = self.cfg.random_init.get("seed")
+        # A new random seed will be created if self.seed == None
+        self.new_random_seed = None
+
         self.target_observable = self._build_observable()
 
         # Runtime state
         self.cost_fn_calling_counter = 0
         self.iteration_count = 0
 
+        # Circuit with optimized param
+        self.ansatz_final: QuantumCircuit = None
         # circuit chunk
         self.circuit_chunk = None
+
+        # Quantum States
+        self.init_state = None
+        self.final_state = None
 
     # ------------------------------------------------------------------
     # Setup helpers
@@ -109,23 +122,29 @@ class VQE:
                 )
             return params
 
-        seed = self.cfg.random_init.get("seed")
+        random_seed = None
         random_params = None
 
-        if seed is not None:
-            np.random.seed(seed)
+        if self.seed is not None:
+            random_seed = self.seed
+            #np.random.seed(self.seed)
+        else:
+            random_seed = int(np.random.randint(0, 2**31 - 1))
+            self.new_random_seed = random_seed
+            #np.random.seed(random_seed)
 
-        
         random_params = create_random_params(
             per_layer_angle_params=self.per_layer_angle_params,
             n_layers=self.cfg.n_layers,
             time=self.cfg.total_time,
-            seed=seed,
+            seed=random_seed,
         )
-        
+
         if self.cfg.verbosity >= 2:
-            logger.info(f"Random init, seed={seed}")
-            logger.info(f"For drift: {self.drift}, per layer angle param count: {self.per_layer_angle_params}")
+            logger.info(f"Random init, seed={self.seed}")
+            logger.info(
+                f"For drift: {self.drift}, per layer angle param count: {self.per_layer_angle_params}"
+            )
             logger.info(
                 f"Time params ({len(random_params['time_params'])}): "
                 f"{random_params['time_params']}"
@@ -141,7 +160,7 @@ class VQE:
     # Circuit and cost
     # ------------------------------------------------------------------
     def _create_ansatz(self, params: np.ndarray, return_layer_details: bool = False):
-        #drift = self.cfg.drift.lower()
+        # drift = self.cfg.drift.lower()
         if self.drift == "xy":
             return create_ansatz_drift_xy(
                 system=self.cfg.system,
@@ -167,6 +186,10 @@ class VQE:
         cost = self.target_observable.get_expectation_value(state)
 
         self.cost_fn_calling_counter += 1
+        if self.init_state is not None:
+            self.init_state = self.init_state = state.copy()
+        else:
+            pass
         if self.cfg.verbosity >= 1:
             logger.info(
                 f"Current cost: {cost} with counter: {self.cost_fn_calling_counter}"
@@ -234,15 +257,22 @@ class VQE:
         ansatz = self._create_ansatz(
             params=optimized_parameters, return_layer_details=True
         )
+        self.ansatz_final = ansatz["circuit"]
         layer_details = ansatz["layer_details"]
         drift_hamiltonian_string = ansatz["drift_hamiltonian_string"]
         self.circuit_chunk = ansatz["circuit_chunk"]
         # Exact solution
         exact_min_eigh_val = self.min_eigenvalue
+        # Final state
+        final_density_matrix = DensityMatrix(self.cfg.n_qubits)
+        self.ansatz_final.update_quantum_state(final_density_matrix)
+        self.final_state = final_density_matrix.copy()
+
         output_dict = {
             "exact_sol": exact_min_eigh_val,
             "min_cost": min_cost,
             "optimized_params": optimized_parameters,
+            "new_seed": self.new_random_seed,
             "initial_params": initial_params.tolist(),
             "n_cost_evaluations": self.cost_fn_calling_counter,
             "opmizer_artifacts": opt_solution,
@@ -252,7 +282,9 @@ class VQE:
         }
         return output_dict
 
-    def draw_circuit(self, file_path: str, dpi: int = 300, file_type: str | None = None) -> None:
+    def draw_circuit(
+        self, file_path: str, dpi: int = 300, file_type: str | None = None
+    ) -> None:
         """Save a drawing of the first ansatz layer (call after run())."""
         if self.circuit_chunk is None:
             logger.warning("No circuit chunk available. Run the optimization first.")
@@ -267,3 +299,54 @@ class VQE:
             logger.error(f"Could not draw the circuit: {e}")
         finally:
             plt.close("all")
+
+    def export_circuit_json(self, export_json: bool = False) -> str | None:
+        """Return the final ansatz circuit serialized as a JSON string."""
+        if not export_json:
+            return None
+
+        if self.ansatz_final is None:
+            logger.warning("No final ansatz circuit available to export. Run the optimization first.")
+            return None
+
+        try:
+            circuit_data = self.ansatz_final.to_json()
+            
+            # If to_json() returns a raw JSON string, load it and re-dump with indent for readability
+            if isinstance(circuit_data, str):
+                try:
+                    circuit_data = json.loads(circuit_data)
+                except json.JSONDecodeError:
+                    return circuit_data  # Return as-is if it's already a plain string
+
+            return json.dumps(circuit_data, indent=2)
+            
+        except Exception as e:
+            logger.error(f"Could not serialize circuit to JSON: {e}")
+            return None
+
+    @staticmethod
+    def _matrix_to_json(state) -> dict:
+        """Density matrix -> JSON-safe dict (JSON has no complex type)."""
+        m = np.asarray(state.get_matrix())
+        return {"real": m.real.tolist(), "imag": m.imag.tolist()}
+
+    def export_quantum_states(self, export_initial_state: bool = False,
+                            export_final_state: bool = False) -> dict:
+        """Return the requested states as {"real": ..., "imag": ...} dicts (None if unavailable)."""
+        states = {}
+        for wanted, key, attr in (
+            (export_initial_state, "initial_state", "init_state"),
+            (export_final_state, "final_state", "final_state"),
+        ):
+            if not wanted:
+                continue
+            state = getattr(self, attr, None)
+            if state is None:
+                logger.warning(f"{key} is not available. Run the optimization first.")
+                states[key] = None
+            else:
+                states[key] = self._matrix_to_json(state)
+        return states
+
+

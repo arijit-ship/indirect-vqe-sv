@@ -32,9 +32,24 @@ class Config:
         self.output_dir = Path(out) if out is not None else None
 
         self.output_prefix = get(self.output, "output_prefix")
-        self.draw_cricuit_enabled = get(self.output, "draw_circut_layer", "enabled", default=False)
-        self.draw_cricuit_type = get(self.output, "draw_circut_layer", "type", default="png")
-        self.draw_cricuit_dpi = get(self.output, "draw_circut_layer", "dpi", default=300)
+        self.draw_cricuit_enabled = get(
+            self.output, "draw_circut_layer", "enabled", default=False
+        )
+        self.draw_cricuit_type = get(
+            self.output, "draw_circut_layer", "type", default="png"
+        )
+        self.draw_cricuit_dpi = get(
+            self.output, "draw_circut_layer", "dpi", default=300
+        )
+        self.export_circut_json = get(
+            self.output, "export_circuit_json", default=False
+        )
+        self.export_initial_state = get(
+            self.output, "expot_quantum_states", "initial", default=False
+        )
+        self.export_final_state = get(
+            self.output, "expot_quantum_states", "final", default=False
+        )
 
         self.verbosity = get(self.output, "verbosity", default=1)
         self.hdf5_enabled = get(self.output, "hdf5_storing", "enabled", default=False)

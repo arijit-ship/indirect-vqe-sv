@@ -33,8 +33,8 @@ def create_ansatz_drift_xy(
     noise: dict,
     parameters: List,
     verbosity: int = 1,
-    return_layer_details: bool=False,
-    drift_type: str = "xy"
+    return_layer_details: bool = False,
+    drift_type: str = "xy",
 ) -> dict:
 
     circuit_chunk = None
@@ -110,7 +110,9 @@ def create_ansatz_drift_xy(
                 )
 
                 if verbosity >= 3:
-                    logger.info(f"{rotation_gate_noise_probability}-noise added to RX & RY gates with probability: {rotation_gate_noise_probability}")
+                    logger.info(
+                        f"{rotation_gate_noise_probability}-noise added to RX & RY gates with probability: {rotation_gate_noise_probability}"
+                    )
 
             except Exception as e:
                 raise ValueError(f"[ EROR ] Misconfiguration: {e}") from e
@@ -144,7 +146,9 @@ def create_ansatz_drift_xy(
                 circuit.add_noise_gate(
                     Identity(1), cz_gate_noise_type, cz_gate_noise_probability
                 )
-                logger.info(f"{cz_gate_noise_type}-noise added to CZ gate with probability: {cz_gate_noise_probability}")
+                logger.info(
+                    f"{cz_gate_noise_type}-noise added to CZ gate with probability: {cz_gate_noise_probability}"
+                )
 
             except Exception as e:
                 raise ValueError(f"[ EROR ] Misconfiguration: {e}") from e
@@ -164,7 +168,7 @@ def create_ansatz_drift_xy(
             ti = parameters[layer - 1]
             tf = parameters[layer]
 
-                # Current layer details
+            # Current layer details
         current_layer_details = {
             "layer_index": layer,
             "time": [ti, tf],
@@ -183,7 +187,9 @@ def create_ansatz_drift_xy(
                     circuit.add_noise_gate(
                         Identity(i), drift_noise_type, drift_noise_probability
                     )
-                current_layer_details["drift_noise_probability"] = drift_noise_probability
+                current_layer_details["drift_noise_probability"] = (
+                    drift_noise_probability
+                )
 
         # Drift evolution: Lie-Trotter subdivision
         else:
@@ -219,7 +225,7 @@ def create_ansatz_drift_xy(
         "circuit": circuit,
         "layer_details": all_layer_details,
         "drift_hamiltonian_string": str(drift_hamiltonian),
-        "circuit_chunk": circuit_chunk
+        "circuit_chunk": circuit_chunk,
     }
     return ansatz_dict
 
@@ -237,14 +243,14 @@ def lie_trotter_evo(
     noise_strength: float = 0.0,
     verbosity: int = 3,
     return_layer_details: bool = False,
-):
+) -> dict:
     n_steps = int(np.ceil(abs(tf - ti) / delta_t)) if delta_t > 0 else 1
     if n_steps == 0:
         n_steps = 1
 
-    #noise_probability = noise_strength * abs(tf - ti) / n_steps
-    ti_sub = ti/n_steps
-    tf_sub = tf/n_steps
+    # noise_probability = noise_strength * abs(tf - ti) / n_steps
+    ti_sub = ti / n_steps
+    tf_sub = tf / n_steps
     noise_probability_sub = noise_strength * abs(tf_sub - ti_sub)
 
     time_evo_gate = create_time_evo_unitary(
@@ -269,7 +275,9 @@ def lie_trotter_evo(
             for q in range(num_qubits):
                 circuit.add_noise_gate(Identity(q), noise_type, noise_probability_sub)
             if verbosity >= 3:
-                logger.info(f"Subdivision layer-{curent_layer_index} noise-{noise_type} probability: {noise_probability_sub}")
+                logger.info(
+                    f"Subdivision layer-{curent_layer_index} noise-{noise_type} probability: {noise_probability_sub}"
+                )
 
     return circuit, trotter_dict
 
