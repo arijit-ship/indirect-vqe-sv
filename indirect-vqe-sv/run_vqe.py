@@ -26,9 +26,10 @@ from scripts.vqe import VQE
 CONFIG_FILE_NAME_CHUNK: str = "source_config"
 VQE_LOG_FILE_NAME_CHUNK: str = "vqe_logs"
 CIRCUIT_FIGURE_FILE_NAME_CHUNK: str = "circuit_figure"
-INIT_QUANTUM_STATE_FILE_NAME_CHUNK: str = "quantum_state"
+INIT_QUANTUM_STATE_FILE_NAME_CHUNK: str = "initial_state"
 FINAL_QUANTUM_STATE_FILE_NAME_CHUNK: str = "final_state"
 CIRCUIT_JSON_FILE_NAME_CHUNK: str = "circuit_json"
+OPTIMIZER_ARTIFACT_FILE_NAME_CHUNK: str = "optimizer_artifacts"
 
 # File name prefix length safety cap
 MAX_FILE_NAME_PREFIX_LENGTH: int = 30
@@ -85,7 +86,7 @@ def main():
     cfg = Config(raw_config)
 
     # Setup timestamps and experiment IDs
-    experiment_id = f"vqe_{uuid.uuid4().hex[:8]}"
+    experiment_id = f"{uuid.uuid4().hex[:8]}"
     timestamp_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     timestamp_file = datetime.now().strftime("%Y%m%d_%H%M%S")
     # run_index = getattr(cfg, "run_index", 0)
@@ -103,8 +104,9 @@ def main():
 
     # Setup output directory
     if cfg.output_dir is not None:
+        logging.info(f"Checking for ourput directory") 
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        logging.info(f"Checking for ourput directory")
+        
         # with open(
         #     cfg.output_dir
         #     / f"{file_name_prefix}_{CONFIG_FILE_NAME_CHUNK}_{experiment_id}_{timestamp_file}.json",
@@ -205,6 +207,7 @@ def main():
                 payload = convert_numpy_types({"meta": experiment_meta, key: data})
                 path.write_text(json.dumps(payload, indent=2))
                 logging.info(f"{key} saved to: {path.resolve()}")
+
 
         print("\n" + "=" * REPEAT_SYMBOL)
         print(f"Execution complete. Summary saved to: {summary_file.resolve()}")

@@ -11,6 +11,7 @@ parameterseter layout (length = n_layers + 2 * k * n_layers):
     parameterseters[n_layers : ]       -> per layer, per control qubit i: [RX angle, RY angle]
 """
 
+import json
 import logging
 from typing import Any, Dict, List, Tuple
 
@@ -37,7 +38,9 @@ def create_ansatz_drift_xy(
     circuit_chunk = None
     drift_hamiltonian: Observable = None
 
-    num_rot_gates: int = 0
+    # num_rot_gates: int = 0
+    num_rx_gate: int = 0
+    num_ry_gate: int = 0
     num_cz_gates: int = 0
     num_time_evo_gate: int = 0
 
@@ -48,8 +51,8 @@ def create_ansatz_drift_xy(
 
         # Time evolution
         total_evolution_time: float = system["time_evolution"]["total_time"]
-        trotter_subdivide_enabled: bool = system["time_evolution"]["totter_subdivide"]["enabled"]
-        trotter_subdivide_step_length: float = system["time_evolution"]["totter_subdivide"]["step_length"]
+        trotter_subdivide_enabled: bool = system["time_evolution"]["trotter_subdivide"]["enabled"]
+        trotter_subdivide_step_length: float = system["time_evolution"]["trotter_subdivide"]["step_length"]
 
         # Noise in control unit
         rotation_gate_noise_enabled: bool = noise["control_unit_noise"]["enabled"]
@@ -69,6 +72,17 @@ def create_ansatz_drift_xy(
     except KeyError as e:
         raise KeyError(f"[ EROR ] Misconfiguration: {e}")
 
+    drift_type = drift_type.lower()
+    per_layer_by_drift = {"xy": 4, "heisenberg": 2}
+    if drift_type not in per_layer_by_drift:
+        raise ValueError("[ Error ] Invalid drift type. Valid drifts are: xy, heisenberg")
+
+    expected = num_layers * (1 + per_layer_by_drift[drift_type])
+    if len(parameters) != expected:
+        raise ValueError(
+            f"Expected {expected} parameters for {drift_type} with {num_layers} layers, got {len(parameters)}"
+        )
+
     # Drift Hamiltonian: XY or Heisenebrg
     if drift_type.lower() == "xy":
         drift_hamiltonian = create_xy_hamiltonian(num_qubits=num_qubits)
@@ -80,7 +94,8 @@ def create_ansatz_drift_xy(
     # Drift Hamiltonian is XY
     # drift_hamiltonian: Observable = create_xy_hamiltonian(num_qubits=num_qubits)
     circuit: QuantumCircuit = QuantumCircuit(num_qubits)
-    flag: int = num_layers  # Tracking angles in param ndarrsy
+    # Variational parameters [time param of length layer, algle param]
+    angle_param_starting_index: int = num_layers  # Tracking angles in param ndarrsy
 
     # Initialize layer details container if tracking is enabled
     all_layer_details = [] if return_layer_details else None
@@ -90,29 +105,34 @@ def create_ansatz_drift_xy(
         # Control Unit
         if rotation_gate_noise_enabled:
             try:
-                # Add Rx to first and second qubits
+                # Add Rx to first qubits
                 circuit.add_noise_gate(
-                    RX(0, parameters[flag]),
+                    RX(0, parameters[angle_param_starting_index]),
                     rotation_gate_noise_type,
                     rotation_gate_noise_probability,
                 )
+                # Add Ry to first qubits
                 circuit.add_noise_gate(
-                    RX(1, parameters[flag + 1]),
+                    RY(0, parameters[angle_param_starting_index + 1]),
                     rotation_gate_noise_type,
                     rotation_gate_noise_probability,
                 )
-                # Add Ry to first and second qubits
-                circuit.add_noise_gate(
-                    RY(0, parameters[flag + 2]),
-                    rotation_gate_noise_type,
-                    rotation_gate_noise_probability,
-                )
-                circuit.add_noise_gate(
-                    RY(1, parameters[flag + 3]),
-                    rotation_gate_noise_type,
-                    rotation_gate_noise_probability,
-                )
-                num_rot_gates += 4
+                if drift_type == "xy":
+                    # Add Rx to the second qubit
+                    circuit.add_noise_gate(
+                        RX(1, parameters[angle_param_starting_index + 2]),
+                        rotation_gate_noise_type,
+                        rotation_gate_noise_probability,
+                    )
+                    # Add Ry to the second qubit
+                    circuit.add_noise_gate(
+                        RY(1, parameters[angle_param_starting_index + 3]),
+                        rotation_gate_noise_type,
+                        rotation_gate_noise_probability,
+                    )
+
+                num_rx_gate += 4 if drift_type == "xy" else 2
+                num_ry_gate += 4 if drift_type == "xy" else 2
 
                 if verbosity >= 3:
                     logger.info(
@@ -123,24 +143,28 @@ def create_ansatz_drift_xy(
                 raise ValueError(f"[ EROR ] Misconfiguration: {e}") from e
         else:
             try:
-                # Add Rx to first and second qubits
-                circuit.add_gate(RX(0, parameters[flag]))
-                circuit.add_gate(RX(1, parameters[flag + 1]))
-                # Add Ry to first and second qubits
-                circuit.add_gate(RY(0, parameters[flag + 2]))
-                circuit.add_gate(RY(1, parameters[flag + 3]))
+                # Add Rx and Ry to the first qubit
+                circuit.add_gate(RX(0, parameters[angle_param_starting_index]))
+                circuit.add_gate(RY(0, parameters[angle_param_starting_index + 1]))
 
-                num_cz_gates += 1
+                if drift_type == "xy":
+                    # Add Rx and Ry to the second qubit
+                    circuit.add_gate(RX(1, parameters[angle_param_starting_index + 2]))
+                    circuit.add_gate(RY(1, parameters[angle_param_starting_index + 3]))
+
+                num_rx_gate += 4 if drift_type == "xy" else 2
+                num_ry_gate += 4 if drift_type == "xy" else 2
+
                 if verbosity >= 3:
                     logging.info(f"RX, RY gates added without any noise")
 
             except Exception as e:
                 raise ValueError(f"[ EROR ] Misconfiguration: {e}") from e
 
-        # Increment of the flag depends on the size of the control unit.
+        # Increment of the angle_param_starting_index depends on the size of the control unit.
         # For XY drift, size of the control unit is 4.
         # For Heisenberg drift, the size of the control unit is 2.
-        flag += {"xy": 4, "heisenberg": 2}.get(drift_type.lower(), 0)
+        angle_param_starting_index += {"xy": 4, "heisenberg": 2}.get(drift_type.lower(), 0)
 
         # CZ Gate
         if cz_gate_noise_enabled:
@@ -148,16 +172,24 @@ def create_ansatz_drift_xy(
                 circuit.add_CZ_gate(0, 1)
                 circuit.add_noise_gate(Identity(0), cz_gate_noise_type, cz_gate_noise_probability)
                 circuit.add_noise_gate(Identity(1), cz_gate_noise_type, cz_gate_noise_probability)
-                logger.info(
-                    f"{cz_gate_noise_type}-noise added to CZ gate with probability: {cz_gate_noise_probability}"
-                )
+
+                num_cz_gates += 1
+
+                if verbosity >= 3:
+                    logger.info(
+                        f"{cz_gate_noise_type}-noise added to CZ gate with probability: {cz_gate_noise_probability}"
+                    )
 
             except Exception as e:
                 raise ValueError(f"[ EROR ] Misconfiguration: {e}") from e
 
         else:
             circuit.add_CZ_gate(0, 1)
-            logger.info(f"CZ gate added without any noise")
+
+            num_cz_gates += 1
+
+            if verbosity >= 3:
+                logger.info(f"CZ gate added without any noise")
 
         # Drift evolution
         ##################
@@ -212,7 +244,8 @@ def create_ansatz_drift_xy(
         if return_layer_details:
             all_layer_details.append(current_layer_details)
         if verbosity >= 3:
-            logger.info(f"Layer-{layer} details: {current_layer_details}")
+            # logger.info(f"Layer-{layer} details: {current_layer_details}")
+            logger.info(f"Layer-{layer} details: {json.dumps(current_layer_details, default=float)}")
 
         if circuit_chunk is None:
             circuit_chunk = circuit.copy()

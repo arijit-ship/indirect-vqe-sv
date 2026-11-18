@@ -65,6 +65,10 @@ class VQE:
         self.init_state = None
         self.final_state = None
 
+        # Parameters, kept so states can be rebuilt on demand
+        self.initial_params = None
+        self.optimized_params = None
+
     # ------------------------------------------------------------------
     # Setup helpers
     # ------------------------------------------------------------------
@@ -148,34 +152,43 @@ class VQE:
     # Circuit and cost
     # ------------------------------------------------------------------
     def _create_ansatz(self, params: np.ndarray, return_layer_details: bool = False):
-        # drift = self.cfg.drift.lower()
-        if self.drift == "xy":
-            return create_ansatz_drift_xy(
-                system=self.cfg.system,
-                noise=self.cfg.noise,
-                parameters=params,
-                verbosity=self.cfg.verbosity,
-                return_layer_details=return_layer_details,
-            )
-        if self.drift == "heisenberg":
-            return create_ansatz_drift_heisenberg(
-                system=self.cfg.system,
-                noise=self.cfg.noise,
-                parameters=params,
-            )
-        raise ValueError(f"Unsupported drift type: {self.cfg.drift}")
+       
+        return create_ansatz_drift_xy(
+                    system=self.cfg.system,
+                    noise=self.cfg.noise,
+                    parameters=params,
+                    verbosity=self.cfg.verbosity,
+                    return_layer_details=return_layer_details,
+                    drift_type=self.drift,
+                )
+
+    # def _cost_function(self, params: np.ndarray, return_layer_details: bool = False) -> float:
+    #     state = DensityMatrix(self.cfg.n_qubits)
+    #     circuit = self._create_ansatz(params, return_layer_details)["circuit"]
+    #     circuit.update_quantum_state(state)
+    #     cost = self.target_observable.get_expectation_value(state)
+
+    #     self.cost_fn_calling_counter += 1
+    #     if self.init_state is not None:
+    #         self.init_state = state.copy()
+    #     else:
+    #         pass
+    #     if self.cfg.verbosity >= 1:
+    #         logger.info(f"Current cost: {cost} with counter: {self.cost_fn_calling_counter}")
+    #     return cost
+
+    def _simulate_state(self, circuit: QuantumCircuit) -> DensityMatrix:
+        state = DensityMatrix(self.cfg.n_qubits)
+        circuit.update_quantum_state(state)
+        return state
 
     def _cost_function(self, params: np.ndarray, return_layer_details: bool = False) -> float:
-        state = DensityMatrix(self.cfg.n_qubits)
         circuit = self._create_ansatz(params, return_layer_details)["circuit"]
-        circuit.update_quantum_state(state)
+        state = self._simulate_state(circuit)
         cost = self.target_observable.get_expectation_value(state)
 
         self.cost_fn_calling_counter += 1
-        if self.init_state is not None:
-            self.init_state = state.copy()
-        else:
-            pass
+
         if self.cfg.verbosity >= 1:
             logger.info(f"Current cost: {cost} with counter: {self.cost_fn_calling_counter}")
         return cost
@@ -232,37 +245,32 @@ class VQE:
         return opt
 
     def run(self) -> dict:
-        initial_params = self._initialize_parameters()
-        opt_solution = self.run_optimization(initial_params, self._build_constraint())
-        optimized_parameters = opt_solution.x.tolist()
+        # 1. Starting point
+        self.initial_params = self._initialize_parameters()
+
+        # 2. Optimization
+        opt_solution = self.run_optimization(self.initial_params, self._build_constraint())
+        self.optimized_params = opt_solution.x
         min_cost = float(opt_solution.fun)
 
-        # After optimization, excute the circuit again with optimized parameters
-        ansatz = self._create_ansatz(params=optimized_parameters, return_layer_details=True)
+        # 3. Rebuild the circuit at the optimized parameters, with layer details
+        ansatz = self._create_ansatz(params=self.optimized_params, return_layer_details=True)
         self.ansatz_final = ansatz["circuit"]
-        layer_details = ansatz["layer_details"]
-        drift_hamiltonian_string = ansatz["drift_hamiltonian_string"]
-        self.circuit_chunk = ansatz["circuit_chunk"]
-        # Exact solution
-        exact_min_eigh_val = self.min_eigenvalue
-        # Final state
-        final_density_matrix = DensityMatrix(self.cfg.n_qubits)
-        self.ansatz_final.update_quantum_state(final_density_matrix)
-        self.final_state = final_density_matrix.copy()
+        self.circuit_chunk = ansatz.get("circuit_chunk")
 
-        output_dict = {
-            "exact_sol": exact_min_eigh_val,
+        # 4. Results
+        return {
+            "exact_sol": self.min_eigenvalue,
             "min_cost": min_cost,
-            "optimized_params": optimized_parameters,
-            "new_seed": self.new_random_seed,
-            "initial_params": initial_params.tolist(),
+            "optimized_params": self.optimized_params.tolist(),
+            "initial_params": self.initial_params.tolist(),
+            "seed_used": self.seed if self.seed is not None else self.new_random_seed,
             "n_cost_evaluations": self.cost_fn_calling_counter,
             "opmizer_artifacts": opt_solution,
             "target_observable_string": str(self.target_observable),
-            "drift_hamiltonian_string": drift_hamiltonian_string,
-            "ansatz_layer_details_optimized": layer_details,
+            "drift_hamiltonian_string": ansatz["drift_hamiltonian_string"],
+            "ansatz_layer_details_optimized": ansatz["layer_details"],
         }
-        return output_dict
 
     def draw_circuit(self, file_path: str, dpi: int = 300, file_type: str | None = None) -> None:
         """Save a drawing of the first ansatz layer (call after run())."""
@@ -312,18 +320,22 @@ class VQE:
         return {"real": m.real.tolist(), "imag": m.imag.tolist()}
 
     def export_quantum_states(self, export_initial_state: bool = False, export_final_state: bool = False) -> dict:
-        """Return the requested states as {"real": ..., "imag": ...} dicts (None if unavailable)."""
+        """Simulate and return only the requested states as {"real", "imag"} dicts."""
         states = {}
-        for wanted, key, attr in (
-            (export_initial_state, "initial_state", "init_state"),
-            (export_final_state, "final_state", "final_state"),
-        ):
-            if not wanted:
-                continue
-            state = getattr(self, attr, None)
-            if state is None:
-                logger.warning(f"{key} is not available. Run the optimization first.")
-                states[key] = None
+
+        if export_initial_state:
+            if self.initial_params is None:
+                logger.warning("initial_state is not available. Run the optimization first.")
+                states["initial_state"] = None
             else:
-                states[key] = self._matrix_to_json(state)
+                circuit = self._create_ansatz(self.initial_params)["circuit"]
+                states["initial_state"] = self._matrix_to_json(self._simulate_state(circuit))
+
+        if export_final_state:
+            if self.ansatz_final is None:
+                logger.warning("final_state is not available. Run the optimization first.")
+                states["final_state"] = None
+            else:
+                states["final_state"] = self._matrix_to_json(self._simulate_state(self.ansatz_final))
+
         return states

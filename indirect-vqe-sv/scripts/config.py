@@ -36,6 +36,7 @@ class Config:
         self.draw_cricuit_type = get(self.output, "draw_circut_layer", "type", default="png")
         self.draw_cricuit_dpi = get(self.output, "draw_circut_layer", "dpi", default=300)
         self.export_circut_json = get(self.output, "export_circuit_json", default=False)
+        # self.export_optimizer_artifact = get(self.output, "export_optimizer_artifact", default=False)
         self.export_initial_state = get(self.output, "expot_quantum_states", "initial", default=False)
         self.export_final_state = get(self.output, "expot_quantum_states", "final", default=False)
 

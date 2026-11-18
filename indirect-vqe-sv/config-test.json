@@ -1,8 +1,8 @@
 {
   "output": {
-    "output_dir": "../results/test_1",
-    "output_prefix": "my-super-good-text-vqe-experiments",
-    "verbosity": 3,
+    "output_dir": "../results/test_1_xy",
+    "output_prefix": "xy-drift-test-exp",
+    "verbosity": 2,
     "draw_circut_layer":{
       "enabled": true,
       "type": "png",
@@ -22,12 +22,12 @@
     }
   },
   "system": {
-    "n_qubits": 5,
-    "n_layers": 2,
-    "drift": "XY",
+    "n_qubits": 4,
+    "n_layers": 20,
+    "drift": "xy",
     "time_evolution": {
       "total_time": 20,
-      "totter_subdivide": {
+      "trotter_subdivide": {
         "enabled": true,
         "step_length": 0.1
       }
@@ -35,17 +35,17 @@
   },
   "noise": {
     "drift_noise":{
-      "enabled": false,
+      "enabled": true,
       "type": "Depolarizing",
       "strength": 0.001
       },
     "control_unit_noise": {
-      "enabled": false,
+      "enabled": true,
       "type": "Depolarizing",
       "probability": 0.001
     },
     "cz_gate_noise": {
-      "enabled": false,
+      "enabled": true,
       "type": "Depolarizing",
       "probability": 0.001
     }
@@ -53,7 +53,7 @@
   "parameters": {
     "random_initialization": {
       "enabled": true,
-      "seed": 512
+      "seed": 612
     },
     "values": null,
     "constraints":{
@@ -65,7 +65,7 @@
     "method": "SLSQP",
       "options": {
       "maxiter": 1000,
-      "disp": false,
+      "disp": true,
       "eps": 1e-8,
       "ftol": 1e-6
     }
