@@ -9,7 +9,7 @@ from qulacs import DensityMatrix, QuantumCircuit
 from qulacsvis import circuit_drawer
 from scipy.optimize import minimize
 
-from .ansatz import create_ansatz_drift_heisenberg, create_ansatz_drift_xy
+from .ansatz import create_ansatz_drift_xy
 from .config import Config
 from .constraint import create_tf_fixed_constraint, create_time_constraints_with_mingap
 from .createparam import create_random_params
@@ -245,26 +245,32 @@ class VQE:
         return opt
 
     def run(self) -> dict:
-        # 1. Starting point
+        # Starting point
         self.initial_params = self._initialize_parameters()
 
-        # 2. Optimization
+        # Optimization
         opt_solution = self.run_optimization(self.initial_params, self._build_constraint())
         self.optimized_params = opt_solution.x
         min_cost = float(opt_solution.fun)
 
-        # 3. Rebuild the circuit at the optimized parameters, with layer details
+        # Rebuild the circuit at the optimized parameters, with layer details
         ansatz = self._create_ansatz(params=self.optimized_params, return_layer_details=True)
         self.ansatz_final = ansatz["circuit"]
         self.circuit_chunk = ansatz.get("circuit_chunk")
 
-        # 4. Results
+        # Track the seed used for random parameter initialization. 
+        # Set to None if explicit parameter values were used instead.
+        seed_used = None
+        if self.cfg.parameter_source() == "random":
+            seed_used = self.seed if self.seed is not None else self.new_random_seed
+
+        # Finally returns a dict
         return {
             "exact_sol": self.min_eigenvalue,
             "min_cost": min_cost,
             "optimized_params": self.optimized_params.tolist(),
             "initial_params": self.initial_params.tolist(),
-            "seed_used": self.seed if self.seed is not None else self.new_random_seed,
+            "seed_used": seed_used,
             "n_cost_evaluations": self.cost_fn_calling_counter,
             "opmizer_artifacts": opt_solution,
             "target_observable_string": str(self.target_observable),

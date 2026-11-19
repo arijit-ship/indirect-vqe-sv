@@ -310,5 +310,3 @@ def lie_trotter_evo(
 
     return circuit, trotter_dict
 
-
-def create_ansatz_drift_heisenberg(): ...

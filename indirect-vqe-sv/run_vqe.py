@@ -146,19 +146,27 @@ def main():
         summary_file = (
             cfg.output_dir / f"{file_name_prefix}_{VQE_LOG_FILE_NAME_CHUNK}_{experiment_id}_{timestamp_file}.json"
         )
+        # Extract the inner config if it's wrapped, preventing nested config keys
+        base_config = raw_config.get("config") if isinstance(raw_config.get("config"), dict) else raw_config
+        # Include total run time inside execution output
+        if isinstance(execution_output, dict):
+            execution_output["total_run_time_sec"] = total_run_time
 
-        summary_data = {
+        # Structure the experiment log payload.
+        # This output file preserves the original input configuration under "config" 
+        # and appends runtime metadata and execution results, allowing it to be 
+        # fed directly back as a valid input config for subsequent runs.   
+        experiment_record = {
             "meta": experiment_meta,
-            "config": raw_config,
-            "total_run_time_sec": total_run_time,
-            "output": execution_output,
+            "config": base_config,
+            "output_logs": execution_output,
         }
 
         # Recursively clean any lingering NumPy types before dumping
-        clean_summary_data = convert_numpy_types(summary_data)
+        clean_experiment_record = convert_numpy_types(experiment_record)
 
         with open(summary_file, "w") as f:
-            json.dump(clean_summary_data, f, indent=2)
+            json.dump(clean_experiment_record, f, indent=2)
 
         # Draw the circuit (needs a file path, so it lives inside the output_dir block)
         if cfg.draw_cricuit_enabled:
